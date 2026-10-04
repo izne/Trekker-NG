@@ -48,12 +48,22 @@ public:
     static constexpr int kStemCount = 4;
 
     Deck();
+    ~Deck();
 
     // --- audio thread ---
     void render(float* outInterleaved, uint32_t frameCount) noexcept;
 
     // --- console/UI thread ---
-    void setTrack(std::unique_ptr<DeckData> data); // device must be stopped
+    // Stopped-device contract: resets transport state directly. The audio
+    // device must not be running (console startup, tests).
+    void setTrack(std::unique_ptr<DeckData> data);
+    // Hot load (SPEC §4.7): `data` was prepared off-thread; publishing is an
+    // atomic pointer store. The audio thread adopts it at the start of the
+    // next render (position resets to 0, playback/stem/rate state carries
+    // over) and never frees anything. Call drainRetired() from the UI loop to
+    // release swapped-out data once the audio thread has adopted the new one.
+    void publishTrack(std::unique_ptr<DeckData> data);
+    void drainRetired(); // UI thread; no-op until the audio thread acked
     const DeckData* track() const { return data_.get(); }
 
     void setPlaying(bool playing) noexcept;
@@ -81,7 +91,10 @@ public:
 private:
     void zero(float* out, uint32_t count) const noexcept;
 
-    std::unique_ptr<DeckData> data_;
+    std::unique_ptr<DeckData> data_; // UI-thread owner of the current track
+    std::atomic<const DeckData*> dataPub_{nullptr}; // audio-thread view (SPEC §4.7)
+    std::atomic<const DeckData*> acked_{nullptr};   // adopted by the audio thread
+    std::vector<DeckData*> retired_; // UI-thread only: awaiting ack, then freed
 
     // UI-written atomics.
     std::atomic<bool> playing_{false};

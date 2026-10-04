@@ -46,19 +46,53 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   )
 endif()
 
-# --- console front-end (M1; the ImGui UI arrives in M3) ---
-add_executable(trekker-ng src/console/main.cpp)
-target_include_directories(trekker-ng PRIVATE third_party) # miniaudio.h for --render
-target_link_libraries(trekker-ng PRIVATE trekker_engine)
+# --- Dear ImGui, vendored + SDL2 (SPEC §3) ---
+find_package(SDL2 CONFIG REQUIRED)
+
+add_library(imgui STATIC
+  third_party/imgui/imgui.cpp
+  third_party/imgui/imgui_draw.cpp
+  third_party/imgui/imgui_tables.cpp
+  third_party/imgui/imgui_widgets.cpp
+  third_party/imgui/backends/imgui_impl_sdl2.cpp
+  third_party/imgui/backends/imgui_impl_opengl3.cpp
+)
+target_include_directories(imgui PUBLIC third_party/imgui third_party/imgui/backends)
+target_compile_definitions(imgui PUBLIC SDL_MAIN_HANDLED) # our own entry point
+target_link_libraries(imgui PUBLIC SDL2::SDL2)
+
+# --- console front-end (M1-M2; kept as trekker-console in M3) ---
+add_executable(trekker-console src/console/main.cpp)
+target_include_directories(trekker-console PRIVATE third_party) # miniaudio.h for --render
+target_link_libraries(trekker-console PRIVATE trekker_engine)
 
 if(WIN32)
   # ole32: COM pieces miniaudio may bind directly on WASAPI.
-  target_link_libraries(trekker-ng PRIVATE ole32)
+  target_link_libraries(trekker-console PRIVATE ole32)
 endif()
 
 if(MINGW)
   # Fully static exe so dist/ is one self-contained file (SPEC §10.2).
+  target_link_options(trekker-console PRIVATE -static -static-libgcc -static-libstdc++)
+endif()
+
+# --- ImGui UI front-end (M3, SPEC §6/§8) ---
+add_executable(trekker-ng
+  src/ui/main.cpp
+  src/ui/deck_view.cpp
+)
+target_link_libraries(trekker-ng PRIVATE trekker_engine imgui ole32 opengl32)
+if(MINGW)
+  # -static covers the driver's implicit winpthread/libstdc++ (no extra DLLs);
+  # SDL2 stays a DLL - its import lib is referenced by full path above.
   target_link_options(trekker-ng PRIVATE -static -static-libgcc -static-libstdc++)
+endif()
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  set_source_files_properties(
+    src/ui/main.cpp
+    src/ui/deck_view.cpp
+    PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra"
+  )
 endif()
 
 # --- tests (SPEC §9) - added in M2; option exists from M1 so build.sh is stable ---

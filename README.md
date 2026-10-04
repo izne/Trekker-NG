@@ -8,15 +8,18 @@ stem features of Traktor / djay, but for your own exported stems.
 Written in C++17. Windows first (MSYS2/MinGW64); the engine is kept portable
 so Linux/macOS can follow.
 
-**Current status: M2 of 6** - the engine is proven by an automated test suite;
-the front-end is still a console (the ImGui UI arrives in M3).
+**Current status: M3 of 6** - the ImGui UI is in: drag & drop a track folder
+or `.zip` onto the window and it loads, with a waveform overview, four
+per-stem waveform lanes, stem toggles, transport and a pitch fader on one deck.
 The project is governed by [`SPEC.md`](SPEC.md).
+
+![Trekker-NG deck view - composite waveform on top, four per-stem lanes below](docs/ui-m3.png)
 
 | # | Milestone | Status |
 |---|-----------|--------|
 | **M1** | Pitch PoC (console): load stems, one playhead, per-stem mute, pitch ±10% with cubic Hermite | done |
 | **M2** | Engine cleanup: rate smoothing, declick ramps, mixer extraction, unit tests | done |
-| **M3** | ImGui UI, one deck, track-format loader, waveform overview | planned |
+| **M3** | ImGui UI, one deck, track-format loader, waveforms (composite + per-stem lanes) | done |
 | **M4** | Second deck, crossfader, master section, hot cues, loops, beat display | planned |
 | **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings | planned |
 | **M6** | Packaging: Windows build, Linux AppImage, docs, example tracks | planned |
@@ -37,8 +40,14 @@ The project is governed by [`SPEC.md`](SPEC.md).
   folder; `meta.json` supplies title/artist/BPM/stem colors.
 - **Offline render mode** - render to WAV without a soundcard (`--render`),
   used for tests and automation.
-- **Self-contained executable** - the release binary is one static `.exe`
-  (only Windows system DLLs).
+- **ImGui UI with drag & drop** - drop a track folder or `.zip` anywhere on
+  the window (or paste a path and press Load); the track hot-swaps into the
+  running audio engine without a click or a restart.
+- **Waveforms** - the composite (mixed) waveform on top plus four per-stem
+  lanes below it, each in its stem color and dimmed while muted; all lanes are
+  precomputed min/max peaks, share the playhead, and click-to-seek.
+- **Self-contained download** - `trekker-ng.exe` + `SDL2.dll` only (everything
+  else, including the C++ runtime, is statically linked).
 
 ## Quick start
 
@@ -48,8 +57,12 @@ The project is governed by [`SPEC.md`](SPEC.md).
 dist\trekker-ng.exe examples\magnat.zip
 ```
 
-(`examples/magnat.zip` is a 4-stem example track: `drums/bass/melody/vocals`
-at 128 BPM.)
+or start it without arguments and **drag `examples/magnat.zip` onto the
+window**. (`examples/magnat.zip` is a 4-stem example track:
+`drums/bass/melody/vocals` at 128 BPM.)
+
+`dist\trekker-console.exe` is the old console front-end (same track argument,
+plus the `--render` offline mode).
 
 ### Build from source
 
@@ -67,8 +80,8 @@ Then, inside the project directory (also MINGW64 shell):
 ./build.sh release  # the same, plus dist/trekker-ng-<version>-win64.zip
 ```
 
-The runnable result is always `dist\trekker-ng.exe`. Failing tests block the
-build, so a `dist/` build is known-good.
+The runnable result is `dist/` with `trekker-ng.exe` (UI), `trekker-console.exe`
+and `SDL2.dll`. Failing tests block the build, so a `dist/` build is known-good.
 
 ## Running the example track
 
@@ -77,7 +90,7 @@ The repository ships `examples/magnat.zip` - a complete 4-stem demo track
 Melody, Vocals), zipped with its `meta.json`:
 
 ```
-dist\trekker-ng.exe examples\magnat.zip
+dist\trekker-console.exe examples\magnat.zip
 ```
 
 Startup prints what it loaded, then the key map (playback starts **paused** -
@@ -112,16 +125,17 @@ Things to try:
    record, up to ±10 %. Hold `Shift` for 0.01 % micro-steps, `0` resets.
 4. `Space` again to pause and resume - still click-free - and `Q` to quit.
 
-No soundcard handy? Render the same track offline instead:
+No soundcard handy? The console front-end renders offline instead:
 
 ```
-dist\trekker-ng.exe examples\magnat.zip --render out.wav --rate 1.10 --seconds 6
+dist\trekker-console.exe examples\magnat.zip --render out.wav --rate 1.10 --seconds 6
 ```
 
 ## Command line
 
 ```
-trekker-ng <track.zip | track-folder> [options]
+trekker-ng [track.zip | track-folder]     # UI: optional initial track
+trekker-console <track.zip | track-folder> [options]   # console + --render
 
   --render <out.wav>  render offline to a WAV instead of playing (no soundcard)
   --rate <x>          playback rate for --render (e.g. 1.10 = +10%)
@@ -133,10 +147,25 @@ trekker-ng <track.zip | track-folder> [options]
 Example - render 6 seconds of the example track at -7 %, only drums and bass:
 
 ```
-dist\trekker-ng.exe examples\magnat.zip --render out.wav --rate 0.93 --seconds 6 --stems 1100
+dist\trekker-console.exe examples\magnat.zip --render out.wav --rate 0.93 --seconds 6 --stems 1100
 ```
 
-## Keyboard control (live mode)
+## Keyboard control (UI)
+
+| Key | Action |
+|-----|--------|
+| `Space` | play / pause (at track end: restart) |
+| `1` `2` `3` `4` | toggle stem on/off |
+| `=` `+` `]` | pitch **up** 0.10 % (hold `Shift`: 0.01 %) |
+| `-` `_` `[` | pitch **down** 0.10 % (hold `Shift`: 0.01 %) |
+| `0` | reset pitch to 0.00 % |
+| `Q` / `Esc` | quit |
+
+Click any waveform lane to seek; drag & drop a track folder or `.zip` anywhere
+to load. The vertical fader works like real DJ gear: **up = slower, down =
+faster** (the keyboard steps move the fader too). Load accepts a pasted path.
+
+## Keyboard control (console live mode)
 
 | Key | Action |
 |-----|--------|
@@ -150,8 +179,8 @@ dist\trekker-ng.exe examples\magnat.zip --render out.wav --rate 0.93 --seconds 6
 | `I` | toggle interpolator: cubic Hermite / linear (debug) |
 | `Q` / `Esc` | quit |
 
-Track loading happens at startup (only while the audio device is stopped);
-drag & drop and hot loading arrive with M3.
+In the UI, loading happens any time - the track is prepared on a worker
+thread and hot-swapped into the running audio engine (SPEC §4.7).
 
 ## Track format
 
@@ -194,12 +223,13 @@ src/
     mixer.{h,cpp}            master gain + clamp (crossfader in M4/M5)
     track_loader.{h,cpp}     folder/zip -> DeckData, meta.json
     audio_device.{h,cpp}     miniaudio device, realtime callback
-  console/           M1/M2 console front-end (replaced by src/ui/ in M3)
+  ui/                M3 ImGui + SDL2 front-end (main loop, deck view)
+  console/           M1/M2 console front-end (kept as trekker-console)
 tests/               doctest suite (SPEC §9), run automatically by build.sh
 tools/               manual acceptance helpers (test-track generator)
 examples/            example track
-docs/                FORMAT.md, USAGE.md, DECISIONS.md
-third_party/         vendored: miniaudio, miniz, nlohmann/json, doctest
+docs/                FORMAT.md, USAGE.md, ui-m3.png (screenshot)
+third_party/         vendored: miniaudio, miniz, nlohmann/json, doctest, imgui
 ```
 
 Realtime rules (SPEC §4.7): the audio callback may not allocate, lock, do IO,
@@ -208,8 +238,8 @@ mutes, seek requests); the `tests/` suite enforces the no-allocation rule
 with a global `operator new` counter.
 
 Libraries (SPEC §3): **miniaudio** (device, decode, WAV encode), **miniz**
-(zip), **nlohmann/json** (`meta.json`), **doctest** (tests). *Planned:*
-Dear ImGui + SDL2 (M3 UI).
+(zip), **nlohmann/json** ("meta.json"), **doctest** (tests), **Dear ImGui**
+(UI, vendored) + **SDL2** (window/GL, from pacman).
 
 ## Testing
 
@@ -238,4 +268,4 @@ like pitching a record, with no warble, phasing, or digital smear.
 - [`SPEC.md`](SPEC.md) - the governing specification (features, rules, milestones)
 - [`docs/USAGE.md`](docs/USAGE.md) - end-user usage guide
 - [`docs/FORMAT.md`](docs/FORMAT.md) - track folder/zip and `meta.json` reference
-- [`docs/DECISIONS.md`](docs/DECISIONS.md) - why the project works the way it does
+

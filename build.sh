@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-command build for Trekker-NG inside the MSYS2 MINGW64 environment.
-#   ./build.sh            build -> dist/trekker-ng.exe (runs tests when present)
+#   ./build.sh            build -> dist/{trekker-ng,trekker-console}.exe + SDL2.dll
 #   ./build.sh release    build + pack dist/trekker-ng-<VERSION>-win64.zip
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -21,10 +21,19 @@ fi
 
 mkdir -p dist
 cp -f build/trekker-ng.exe dist/trekker-ng.exe
+cp -f build/trekker-console.exe dist/trekker-console.exe
+
+# SDL2 runtime for the ImGui UI (SPEC §3: pacman-provided SDL2).
+SDL2_DLL="$(ls /d/msys64/mingw64/bin/SDL2*.dll 2>/dev/null | head -n 1 || true)"
+if [ -z "$SDL2_DLL" ]; then
+  echo "error: SDL2.dll not found in /d/msys64/mingw64/bin (pacman -S mingw-w64-x86_64-SDL2)" >&2
+  exit 1
+fi
+cp -f "$SDL2_DLL" dist/SDL2.dll
 
 echo
-echo "build OK -> dist/trekker-ng.exe"
-echo "DLL dependencies (should only be Windows system DLLs):"
+echo "build OK -> dist/trekker-ng.exe + dist/trekker-console.exe + dist/SDL2.dll"
+echo "DLL dependencies of the UI (should be SDL2.dll + Windows system DLLs):"
 objdump -p dist/trekker-ng.exe | grep "DLL Name" || true
 
 # ---------------------------------------------------------------- release ---
@@ -41,8 +50,10 @@ if [ "${1:-}" = "release" ]; then
   rm -rf "$STAGE"
   mkdir -p "$STAGE/docs"
   cp -f dist/trekker-ng.exe "$STAGE/"
+  cp -f dist/trekker-console.exe "$STAGE/"
+  cp -f dist/SDL2.dll "$STAGE/"
   cp -f README.md "$STAGE/"
-  cp -f docs/FORMAT.md docs/USAGE.md "$STAGE/docs/"
+  cp -f docs/FORMAT.md docs/USAGE.md docs/ui-m3.png "$STAGE/docs/"
   rm -f "$ZIP"
 
   powershell.exe -NoProfile -Command \

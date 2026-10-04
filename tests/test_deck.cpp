@@ -244,6 +244,32 @@ TEST_CASE("render path performs no heap allocation (SPEC 9.6)") {
     CHECK(count == 0);
 }
 
+TEST_CASE("hot publish: audio adopts new data, position resets (SPEC 4.7)") {
+    const uint32_t fs = 8000;
+    tng::Deck deck;
+    deck.setTrack(makeSineTrack(fs, 2.0, {440.0}));
+    deck.setPlaying(true);
+    renderFrames(deck, 1000);
+    CHECK(deck.positionFrames() == doctest::Approx(1000.0).epsilon(1e-6));
+
+    deck.publishTrack(makeSineTrack(fs, 3.0, {880.0})); // hot swap while "playing"
+    deck.drainRetired(); // not adopted yet: must not free (no observable, no crash)
+    REQUIRE(deck.track() != nullptr);
+    CHECK(deck.track()->frames == static_cast<int64_t>(3.0 * fs));
+
+    const auto out2 = renderFrames(deck, 500); // adoption happens here
+    CHECK(deck.positionFrames() == doctest::Approx(500.0).epsilon(1e-6));
+    CHECK(deck.playing()); // transport state carried over
+    deck.drainRetired();   // adopted now: retired data released
+
+    // New audio actually plays the new track (880 Hz sine, not silence).
+    float peak = 0.0f;
+    for (int64_t i = 0; i < 500; ++i) {
+        peak = std::max(peak, std::fabs(out2[static_cast<size_t>(i) * 2]));
+    }
+    CHECK(peak > 0.1f);
+}
+
 TEST_CASE("mixer: master gain and hard clamp (SPEC 4.6)") {
     tng::Mixer mixer;
     CHECK(mixer.masterGain() == doctest::Approx(0.7f));

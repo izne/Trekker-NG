@@ -22,6 +22,10 @@ Deck::Deck() {
     }
 }
 
+Deck::~Deck() {
+    for (DeckData* d : retired_) delete d; // pending swaps: no audio thread here
+}
+
 void Deck::zero(float* out, uint32_t count) const noexcept {
     std::memset(out, 0, count * sizeof(float));
 }
@@ -29,7 +33,9 @@ void Deck::zero(float* out, uint32_t count) const noexcept {
 void Deck::setTrack(std::unique_ptr<DeckData> data) {
     // Contract: audio device is stopped here, so touching the non-atomic
     // audio-thread state is safe.
+    if (data_) retired_.push_back(data_.release()); // freed by drainRetired()/~Deck
     data_ = std::move(data);
+    dataPub_.store(data_.get(), std::memory_order_release);
     playhead_ = 0.0;
     displayPos_.store(0.0, std::memory_order_relaxed);
     playing_.store(false, std::memory_order_release);
@@ -46,6 +52,30 @@ void Deck::setTrack(std::unique_ptr<DeckData> data) {
         // Snap gains to the targets so a load never produces a fade-in click.
         stemGain_[i] = stemTarget_[i].load(std::memory_order_relaxed) ? 1.0f : 0.0f;
     }
+}
+
+void Deck::publishTrack(std::unique_ptr<DeckData> data) {
+    // Hot path (SPEC §4.7): only the pointer swap happens here - no touching
+    // audio-thread state. The audio thread adopts `data` at the start of its
+    // next render (position resets, transport/stems/rate carry over). The old
+    // data is retired and freed later on this non-audio thread.
+    if (data_) retired_.push_back(data_.release());
+    data_ = std::move(data);
+    dataPub_.store(data_.get(), std::memory_order_release);
+}
+
+void Deck::drainRetired() {
+    if (retired_.empty()) return;
+    // Safe only once the audio thread has adopted the current pointer: any
+    // block that could still reference retired data has then completed
+    // (renders are sequential on the single audio thread).
+    if (acked_.load(std::memory_order_acquire) != dataPub_.load(std::memory_order_acquire)) {
+        return;
+    }
+    for (DeckData* d : retired_) {
+        delete d;
+    }
+    retired_.clear();
 }
 
 void Deck::setPlaying(bool playing) noexcept {
@@ -116,7 +146,25 @@ void Deck::render(float* out, uint32_t frameCount) noexcept {
     // position display follows immediately.
     const int64_t seek = seekRequest_.exchange(-1, std::memory_order_acq_rel);
 
-    const DeckData* d = data_.get();
+    const DeckData* d = dataPub_.load(std::memory_order_acquire);
+    const bool adopted = d != acked_.load(std::memory_order_acquire);
+    if (adopted) {
+        // Adopt newly published data (or none): transport resets happen on
+        // the audio thread only; so do the sample-rate-derived constants.
+        // Nothing is freed here - SPEC §4.7.
+        playhead_ = 0.0;
+        xfadeRemaining_ = 0;
+        seekRequest_.store(-1, std::memory_order_relaxed);
+        if (d != nullptr && d->sampleRate > 0) {
+            const double fs = static_cast<double>(d->sampleRate);
+            rampStep_ = static_cast<float>(1.0 / (kRampSeconds * fs));
+            declickFrames_ = std::max<int64_t>(1, static_cast<int64_t>(kDeclickSeconds * fs));
+            rateCoeff_ = 1.0 - std::exp(-1.0 / (kRateTauSeconds * fs));
+        }
+        displayPos_.store(0.0, std::memory_order_relaxed);
+        acked_.store(d, std::memory_order_release);
+    }
+
     if (d == nullptr || d->frames <= 0) {
         zero(out, frameCount * 2);
         displayPos_.store(playhead_, std::memory_order_relaxed);
@@ -127,7 +175,7 @@ void Deck::render(float* out, uint32_t frameCount) noexcept {
     const double rateTarget = rateTarget_.load(std::memory_order_relaxed);
     const InterpMode mode = interp();
 
-    if (seek >= 0) {
+    if (seek >= 0 && !adopted) { // a seek racing a publish targets the old track: drop
         if (outputGain_ > 0.0f) {
             // Audible jump: declick with a crossfade from the old position.
             // A jump during an active crossfade only retargets the new path.

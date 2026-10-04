@@ -1,6 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <new>
 
@@ -26,6 +27,14 @@ namespace rtcheck {
 thread_local int inScope = 0;
 thread_local long allocCount = 0;
 } // namespace rtcheck
+
+namespace {
+// Unbuffered stdout so a crash mid-test still leaves the assertions printed
+// so far in the output (doctest buffers would be lost otherwise).
+struct UnbufferedStdout {
+    UnbufferedStdout() { std::setvbuf(stdout, nullptr, _IONBF, 0); }
+} g_unbufferedStdout;
+} // namespace
 
 void* operator new(std::size_t n) {
     if (rtcheck::inScope > 0) ++rtcheck::allocCount;
