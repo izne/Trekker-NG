@@ -29,6 +29,55 @@ uint32_t stemColor(uint32_t color, bool on) {
     return IM_COL32(r, g, b, alpha);
 }
 
+// --- VFD readout (M4display) ------------------------------------------------
+// One dark inset box with mixed-font segments: DSEG7 cyan numbers (the
+// default font is merged into vfdFont, so '+', '%', '/' fall back to it
+// automatically) next to plain-font words like "beat"/"BPM".
+struct VfdSeg {
+    const char* text;
+    bool dseg;
+};
+
+void vfdLine(const VfdSeg* segs, int count) {
+    static const ImU32 kInset = IM_COL32(8, 12, 14, 255);
+    static const ImU32 kCyan = IM_COL32(96, 244, 224, 255);
+    static const ImU32 kWord = IM_COL32(170, 178, 186, 255);
+    const float padX = 4.0f, padY = 2.0f;
+    if (count > 8) count = 8;
+    float widths[8], heights[8];
+    float total = 0.0f, maxH = 0.0f;
+    for (int i = 0; i < count; ++i) {
+        ImVec2 ts;
+        if (segs[i].dseg && vfdFont) {
+            ImGui::PushFont(vfdFont, kVfdFontSize);
+            ts = ImGui::CalcTextSize(segs[i].text);
+            ImGui::PopFont();
+        } else {
+            ts = ImGui::CalcTextSize(segs[i].text);
+        }
+        widths[i] = ts.x;
+        heights[i] = ts.y;
+        total += ts.x;
+        maxH = std::max(maxH, ts.y);
+    }
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const ImVec2 box(total + 2.0f * padX, maxH + 2.0f * padY);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(pos, ImVec2(pos.x + box.x, pos.y + box.y), kInset);
+    float x = pos.x + padX;
+    for (int i = 0; i < count; ++i) {
+        const float y = pos.y + padY + (maxH - heights[i]) * 0.5f;
+        if (segs[i].dseg && vfdFont) {
+            dl->AddText(vfdFont, kVfdFontSize, ImVec2(x, y), kCyan, segs[i].text);
+        } else {
+            dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(x, y),
+                        kWord, segs[i].text);
+        }
+        x += widths[i];
+    }
+    ImGui::Dummy(box);
+}
+
 } // namespace
 
 void WaveformCache::build(const tng::DeckData& data, int bins) {
@@ -229,12 +278,22 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
         const double fs = static_cast<double>(std::max(data->sampleRate, 1u));
         formatTime(deck.positionFrames() / fs, t1, sizeof(t1));
         formatTime(static_cast<double>(data->frames) / fs, t2, sizeof(t2));
-        ImGui::Text("%s / %s", t1, t2);
+        char timeBuf[80];
+        std::snprintf(timeBuf, sizeof(timeBuf), "%s / %s", t1, t2);
+        const VfdSeg timeSegs[] = {{timeBuf, true}};
+        vfdLine(timeSegs, 1);
         if (data->bpm > 0.0f) {
             const double beats = deck.positionFrames() / fs *
                                  static_cast<double>(data->bpm) * deck.rate() / 60.0;
-            ImGui::TextDisabled("beat %.1f | %.1f BPM", std::fmod(beats, 4.0) + 1.0,
-                                static_cast<double>(data->bpm) * deck.rate());
+            char beatN[24], bpmN[24];
+            std::snprintf(beatN, sizeof(beatN), "%.1f",
+                          std::fmod(beats, 4.0) + 1.0);
+            std::snprintf(bpmN, sizeof(bpmN), "%.1f",
+                          static_cast<double>(data->bpm) * deck.rate());
+            const VfdSeg beatSegs[] = {
+                {"beat ", false}, {beatN, true}, {" | ", false},
+                {bpmN, true},     {" BPM", false}};
+            vfdLine(beatSegs, 5);
         }
         ImGui::EndGroup();
 
@@ -253,7 +312,10 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
         } else {
             pitchPct_ = static_cast<float>((deck.rate() - 1.0) * 100.0); // idle: mirror
         }
-        ImGui::Text("%+.2f%%", pitchPct_);
+        char pitchBuf[32];
+        std::snprintf(pitchBuf, sizeof(pitchBuf), "%+.2f%%", pitchPct_);
+        const VfdSeg pitchSegs[] = {{pitchBuf, true}};
+        vfdLine(pitchSegs, 1);
         ImGui::EndGroup();
 
         // --- per-deck VU meter (not in SPEC; small bonus) -------------------

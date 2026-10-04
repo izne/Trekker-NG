@@ -29,6 +29,8 @@
 #include <optional>
 #include <string>
 
+#include "font_dseg.inc" // embedded DSEG7 Classic (SIL OFL 1.1), M4display
+
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -50,6 +52,8 @@ void showError(const char* what) {
 const char* deckName(int i) { return i == 0 ? "A" : "B"; }
 
 } // namespace
+
+ImFont* tui::vfdFont = nullptr; // set right after CreateContext (M4display)
 
 int main(int argc, char** argv) {
     (void)argc;
@@ -92,6 +96,26 @@ int main(int argc, char** argv) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
+
+    // M4display: fonts. [0] stays the stock default so every widget looks
+    // exactly like M4c; [1] is DSEG7 Classic (embedded, SIL OFL 1.1) for the
+    // VFD readouts, with the default font merged into it so the glyphs DSEG7
+    // lacks ('+', '%', '/') fall back automatically. First source wins.
+    // '.' is excluded from DSEG7 on purpose: its period has zero width and
+    // disappears under the next digit ('1.4' read as '14'); the default
+    // font's period takes over instead.
+    io.Fonts->AddFontDefault();
+    ImFontConfig dsegCfg;
+    dsegCfg.FontDataOwnedByAtlas = false; // static array, must outlive the atlas
+    static const ImWchar kDsegExclude[] = {0x002E, 0x002E, 0};
+    dsegCfg.GlyphExcludeRanges = kDsegExclude;
+    tui::vfdFont = io.Fonts->AddFontFromMemoryTTF(
+        const_cast<unsigned char*>(kDseg7ClassicTtf),
+        static_cast<int>(sizeof(kDseg7ClassicTtf)), 15.0f, &dsegCfg);
+    ImFontConfig mergeCfg;
+    mergeCfg.MergeMode = true;
+    io.Fonts->AddFontDefault(&mergeCfg);
+
     // No ImGui keyboard nav: global shortcuts (Space, 1-4) must never fire
     // twice - once through nav activation, once through SDL_KEYDOWN.
     ImGui_ImplSDL2_InitForOpenGL(window, glctx);

@@ -13,7 +13,9 @@ crossfader with line/master gains and a two-deck audio path in the engine,
 plus frame-accurate loops and cue points (parse + persistence). M4c adds the
 two-deck **Mix** mode to the UI: two decks side by side with a mixer column,
 per-deck VU meters, a CUE button, and the session-only `M` mode toggle (the
-app always boots in Single mode). The project is governed by [`SPEC.md`](SPEC.md).
+app always boots in Single mode). M4display renders the time, beat, BPM and
+pitch readouts as cyan 7-segment VFD displays (embedded DSEG7 font). The
+project is governed by [`SPEC.md`](SPEC.md).
 
 ![Trekker-NG mix mode - two decks with waveforms, mixer column and per-deck VU meters](docs/ui-m4c.png)
 
@@ -64,6 +66,9 @@ app always boots in Single mode). The project is governed by [`SPEC.md`](SPEC.md
 - **Per-deck VU meter** - a peak-hold bar per deck fed by the deck's own
   output (before the line fader/crossfader), green/yellow/red as it approaches
   and passes 0.7/0.9.
+- **VFD readouts (M4display)** - time, beat, effective BPM and pitch render
+  in a 7-segment font (DSEG7) on a dark inset, cyan like a vacuum-fluorescent
+  display; everything else keeps the regular UI font.
 - **Self-contained download** - `trekker-ng.exe` + `SDL2.dll` only (everything
   else, including the C++ runtime, is statically linked).
 
@@ -252,7 +257,8 @@ tests/               doctest suite (SPEC §9), run automatically by build.sh
 tools/               manual acceptance helpers (test-track generator)
 examples/            example track
 docs/                FORMAT.md, USAGE.md, ui-m4c.png (screenshot)
-third_party/         vendored: miniaudio, miniz, nlohmann/json, doctest, imgui
+third_party/         vendored: miniaudio, miniz, nlohmann/json, doctest, imgui,
+                     fonts/DSEG7Classic-Regular.ttf (VFD readouts, SIL OFL 1.1)
 ```
 
 Realtime rules (SPEC §4.7): the audio callback may not allocate, lock, do IO,
@@ -262,7 +268,9 @@ with a global `operator new` counter.
 
 Libraries (SPEC §3): **miniaudio** (device, decode, WAV encode), **miniz**
 (zip), **nlohmann/json** ("meta.json"), **doctest** (tests), **Dear ImGui**
-(UI, vendored) + **SDL2** (window/GL, from pacman).
+(UI, vendored) + **SDL2** (window/GL, from pacman). The VFD readouts use
+**DSEG7 Classic** by Keshikan (SIL OFL 1.1, embedded in the exe; the license
+ships as `docs/OFL-DSEG.txt` in release zips).
 
 ## Testing
 

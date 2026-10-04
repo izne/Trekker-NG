@@ -42,7 +42,7 @@ device restarts once at that rate.
 | `VU` meter | per-deck peak bar of that deck's own output: green, yellow above 0.7, red above 0.9 |
 | `1` `2` `3` `4` checkboxes | toggle that stem (colored as in `meta.json`) |
 | pitch fader | vertical, ±10 %, reversed like DJ gear: **up = slower, down = faster** |
-| time / beat | position / length, beat within the bar, effective BPM |
+| time / beat / pitch | position / length, beat within the bar, effective BPM, pitch % - all three render as cyan 7-segment VFD readouts on a dark inset (DSEG7 font); text like `beat`, `BPM` and `+`/`%` keeps the regular UI font |
 | path box + `Load` | load from a typed path |
 
 ### Single and Mix mode

@@ -11,7 +11,14 @@
 #include <cstdint>
 #include <vector>
 
+struct ImFont; // Dear ImGui, global scope (imgui.h)
+
 namespace tui {
+
+// M4display: DSEG7 VFD readout font, loaded once in main.cpp (null until
+// the first frame; the readouts fall back to the default font without it).
+extern ImFont* vfdFont;
+constexpr float kVfdFontSize = 15.0f;
 
 // Min/max peak columns, precomputed once per track on the UI thread
 // (SPEC §6 "precomputed min/max peaks"); the audio thread never touches these.
