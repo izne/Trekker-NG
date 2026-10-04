@@ -1,0 +1,6 @@
+# Shell scripts must stay LF or bash fails with "$'\r': command not found".
+*.sh text eol=lf
+*.py text eol=lf
+
+# Vendored single-header libraries: never re-wrap or re-line-end these.
+third_party/** -text
