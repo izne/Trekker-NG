@@ -53,7 +53,7 @@ if [ "${1:-}" = "release" ]; then
   cp -f dist/trekker-console.exe "$STAGE/"
   cp -f dist/SDL2.dll "$STAGE/"
   cp -f README.md "$STAGE/"
-  cp -f docs/FORMAT.md docs/USAGE.md docs/ui-m3.png "$STAGE/docs/"
+  cp -f docs/FORMAT.md docs/USAGE.md docs/ui-m4c.png "$STAGE/docs/"
   rm -f "$ZIP"
 
   powershell.exe -NoProfile -Command \

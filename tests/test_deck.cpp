@@ -437,3 +437,24 @@ TEST_CASE("loop: hot publish and setTrack clear the points (SPEC 4.7)") {
     CHECK(deck.loopOut() == -1);
     CHECK_FALSE(deck.loopActive());
 }
+
+TEST_CASE("VU: blockPeak tracks the rendered output, 0 when settled") {
+    const uint32_t fs = 44100;
+    tng::Deck deck;
+    deck.setTrack(makeSineTrack(fs, 10.0, {440.0})); // sine stem, amp 0.5
+    deck.setPlaying(true);
+
+    CHECK(deck.blockPeak() == 0.0f); // nothing rendered yet
+
+    renderFrames(deck, fs / 4);  // transport fade (5 ms) long done
+    renderFrames(deck, 256);     // one fresh block after the fade
+    // A 440 Hz sine at amp 0.5 completes >2 cycles in 256 frames, so the
+    // block holds the full amplitude (Hermite error at 440 Hz is <1%).
+    CHECK(deck.blockPeak() >= 0.48f);
+    CHECK(deck.blockPeak() <= 0.52f);
+
+    deck.setPlaying(false);
+    renderFrames(deck, fs / 4); // fade out, then settled silence
+    renderFrames(deck, 256);
+    CHECK(deck.blockPeak() == 0.0f); // settled paused: the block breaks at i=0
+}

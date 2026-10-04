@@ -32,14 +32,17 @@ class DeckView {
 public:
     // Draws the whole deck panel. Returns a non-empty path when the user
     // pressed Load with a path in the box; the caller starts the async load.
-    const char* draw(tng::Deck& deck);
+    // `active` (M4c) highlights the title: it is the deck the global keys
+    // (Space, pitch) currently target.
+    const char* draw(tng::Deck& deck, bool active);
 
     // Call after publishTrack(): forces the waveform rebuild for the new track.
     void onTrackChanged() { wfDirty_ = true; }
 
 private:
-    // One full-width waveform row. `color` includes the mute dimming,
-    // `label` is drawn over the lane (may be null).
+    // One full-width waveform row. `color` includes the mute dimming and
+    // paints the waveform; `label` is drawn over the lane in white (may be
+    // null).
     void drawLane(tng::Deck& deck, const tng::DeckData& data, const WaveformCache::Lane& lane,
                   uint32_t color, float height, const char* label);
 
@@ -47,6 +50,7 @@ private:
     bool wfDirty_ = true; // rebuild on next draw
     char pathBuf_[1024] = {};
     float pitchPct_ = 0.0f; // mirrors the deck rate while the fader is idle
+    float vuLevel_ = 0.0f;  // smoothed VU bar: peak-hold with a per-frame fall
 };
 
 } // namespace tui

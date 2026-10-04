@@ -97,6 +97,11 @@ public:
     void requestSeek(int64_t frame) noexcept;
     double positionFrames() const noexcept; // last rendered playhead (for display)
 
+    // Peak |sample| of the last rendered block (0..1+, post stem gains and
+    // transport fade): feeds the per-deck VU meter in the UI. Written by the
+    // audio thread, read by the UI thread - a relaxed float store, no lock.
+    float blockPeak() const noexcept { return peak_.load(std::memory_order_relaxed); }
+
     // --- loops (SPEC §4.5, session-only) ---
     // Frame-range loop. setLoop() rejects invalid ranges (in < 0, out <= in)
     // and keeps the previous points; the audio thread clamps the points to
@@ -122,7 +127,8 @@ private:
     std::atomic<double> rateTarget_{1.0};
     std::atomic<uint8_t> stemTarget_[kStemCount]; // 0 or 1
     std::atomic<int> interp_{static_cast<int>(InterpMode::Hermite)};
-    std::atomic<double> displayPos_{0.0};
+    std::atomic<double> displayPos_{0.0}; // audio-thread-written (for display)
+    std::atomic<float> peak_{0.0f};       // audio-thread-written: block peak |sample|
     std::atomic<int64_t> seekRequest_{-1}; // -1 = none; consumed by audio thread
     std::atomic<int64_t> loopIn_{-1};      // loop points, frames (session-only)
     std::atomic<int64_t> loopOut_{-1};

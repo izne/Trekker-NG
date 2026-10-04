@@ -200,6 +200,7 @@ void Deck::render(float* out, uint32_t frameCount) noexcept {
     if (d == nullptr || d->frames <= 0) {
         zero(out, frameCount * 2);
         displayPos_.store(playhead_, std::memory_order_relaxed);
+        peak_.store(0.0f, std::memory_order_relaxed);
         return;
     }
 
@@ -264,6 +265,7 @@ void Deck::render(float* out, uint32_t frameCount) noexcept {
     };
 
     uint32_t i = 0;
+    float peak = 0.0f; // block peak |sample| for the VU meter (no extra pass)
     for (; i < frameCount; ++i) {
         // Transport fade toward play/pause - kills the pause/resume click.
         const float ogTarget = playing ? 1.0f : 0.0f;
@@ -329,8 +331,12 @@ void Deck::render(float* out, uint32_t frameCount) noexcept {
             }
         }
 
-        out[i * 2] = left * outputGain_;
-        out[i * 2 + 1] = right * outputGain_;
+        const float sl = left * outputGain_;
+        const float sr = right * outputGain_;
+        out[i * 2] = sl;
+        out[i * 2 + 1] = sr;
+        const float a = std::fabs(sl) > std::fabs(sr) ? std::fabs(sl) : std::fabs(sr);
+        if (a > peak) peak = a;
     }
     if (i < frameCount) {
         zero(out + i * 2, (frameCount - i) * 2);
@@ -339,6 +345,7 @@ void Deck::render(float* out, uint32_t frameCount) noexcept {
         playing_.store(false, std::memory_order_release);
     }
     displayPos_.store(playhead_, std::memory_order_relaxed);
+    peak_.store(peak, std::memory_order_relaxed);
 }
 
 } // namespace tng

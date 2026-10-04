@@ -10,10 +10,12 @@ so Linux/macOS can follow.
 
 **Current status: M4 of 6 (in progress)** - M4a/M4b are in: the equal-power
 crossfader with line/master gains and a two-deck audio path in the engine,
-plus frame-accurate loops and cue points (parse + persistence). The UI is
-still single-deck until M4c. The project is governed by [`SPEC.md`](SPEC.md).
+plus frame-accurate loops and cue points (parse + persistence). M4c adds the
+two-deck **Mix** mode to the UI: two decks side by side with a mixer column,
+per-deck VU meters, a CUE button, and the session-only `M` mode toggle (the
+app always boots in Single mode). The project is governed by [`SPEC.md`](SPEC.md).
 
-![Trekker-NG deck view - composite waveform on top, four per-stem lanes below](docs/ui-m3.png)
+![Trekker-NG mix mode - two decks with waveforms, mixer column and per-deck VU meters](docs/ui-m4c.png)
 
 | # | Milestone | Status |
 |---|-----------|--------|
@@ -42,6 +44,15 @@ still single-deck until M4c. The project is governed by [`SPEC.md`](SPEC.md).
   edits (folder tracks rewrite `meta.json`, zip tracks get a `.cues.json`
   sidecar next to the archive); loops wrap on the exact crossing sample with
   the same 2 ms declick as a seek. Transport controls for both arrive in M4d.
+- **CUE button (M4c)** - next to Play in each deck view; jumps that deck back
+  to the start without touching the play state (the full set/hold/return
+  main-cue behavior of SPEC §4.5 lands in M4d).
+- **Mix mode (M4c)** - `M` toggles Single / Mix for the session: Mix shows
+  deck A and deck B side by side with a mixer column (A/B line faders,
+  crossfader, master), and the deck under the mouse is the *active* deck the
+  global keys target (its title is highlighted). Drop or Load routes to the
+  deck under the pointer. The app always boots in Single mode - persisting
+  the toggle waits for the M5 settings screen.
 - **Offline render mode** - render to WAV without a soundcard (`--render`),
   used for tests and automation.
 - **ImGui UI with drag & drop** - drop a track folder or `.zip` anywhere on
@@ -50,6 +61,9 @@ still single-deck until M4c. The project is governed by [`SPEC.md`](SPEC.md).
 - **Waveforms** - the composite (mixed) waveform on top plus four per-stem
   lanes below it, each in its stem color and dimmed while muted; all lanes are
   precomputed min/max peaks, share the playhead, and click-to-seek.
+- **Per-deck VU meter** - a peak-hold bar per deck fed by the deck's own
+  output (before the line fader/crossfader), green/yellow/red as it approaches
+  and passes 0.7/0.9.
 - **Self-contained download** - `trekker-ng.exe` + `SDL2.dll` only (everything
   else, including the C++ runtime, is statically linked).
 
@@ -138,7 +152,7 @@ dist\trekker-console.exe examples\magnat.zip --render out.wav --rate 1.10 --seco
 ## Command line
 
 ```
-trekker-ng [track.zip | track-folder]     # UI: optional initial track
+trekker-ng [track] [track2]              # UI: optional initial deck A and deck B
 trekker-console <track.zip | track-folder> [options]   # console + --render
 
   --render <out.wav>  render offline to a WAV instead of playing (no soundcard)
@@ -163,11 +177,16 @@ dist\trekker-console.exe examples\magnat.zip --render out.wav --rate 0.93 --seco
 | `=` `+` `]` | pitch **up** 0.10 % (hold `Shift`: 0.01 %) |
 | `-` `_` `[` | pitch **down** 0.10 % (hold `Shift`: 0.01 %) |
 | `0` | reset pitch to 0.00 % |
+| `M` | toggle Single / Mix mode (session only; always boots Single) |
 | `Q` / `Esc` | quit |
 
 Click any waveform lane to seek; drag & drop a track folder or `.zip` anywhere
 to load. The vertical fader works like real DJ gear: **up = slower, down =
 faster** (the keyboard steps move the fader too). Load accepts a pasted path.
+
+In Mix mode the transport and pitch keys follow the **active deck** (the panel
+under the mouse), `1`-`4` toggle deck A's stems, `7`-`0` toggle deck B's, and
+drop/Load target the deck under the pointer; the crossfader starts centered.
 
 ## Keyboard control (console live mode)
 
@@ -232,7 +251,7 @@ src/
 tests/               doctest suite (SPEC §9), run automatically by build.sh
 tools/               manual acceptance helpers (test-track generator)
 examples/            example track
-docs/                FORMAT.md, USAGE.md, ui-m3.png (screenshot)
+docs/                FORMAT.md, USAGE.md, ui-m4c.png (screenshot)
 third_party/         vendored: miniaudio, miniz, nlohmann/json, doctest, imgui
 ```
 
@@ -266,6 +285,8 @@ synthesized in memory:
 7. **Loops & cues** - loop wraps land on the crossing sample, stay click-free
    and reject bad ranges; cue arrays parse/round-trip with unknown
    `meta.json` fields preserved
+8. **VU peak** - `Deck::blockPeak()` tracks the rendered output's peak and
+   drops to 0 once the deck settles
 
 Manual acceptance (SPEC §9): listen at ±10 % on real music - it should sound
 like pitching a record, with no warble, phasing, or digital smear.

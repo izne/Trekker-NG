@@ -133,7 +133,11 @@ void DeckView::drawLane(tng::Deck& deck, const tng::DeckData& data,
 
     dl->AddRect(pos, ImVec2(pos.x + w, pos.y + height), IM_COL32(60, 60, 70, 255));
     if (label != nullptr) {
-        dl->AddText(ImVec2(pos.x + 8.0f, pos.y + 3.0f), color, label);
+        // White, not the stem color: the label sits over the waveform and
+        // disappears into same-colored peaks (worst when the lane is muted
+        // and its color is dimmed).
+        dl->AddText(ImVec2(pos.x + 8.0f, pos.y + 3.0f), IM_COL32(255, 255, 255, 255),
+                    label);
     }
 
     ImGui::Dummy(ImVec2(w, height));
@@ -144,7 +148,7 @@ void DeckView::drawLane(tng::Deck& deck, const tng::DeckData& data,
     if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
 }
 
-const char* DeckView::draw(tng::Deck& deck) {
+const char* DeckView::draw(tng::Deck& deck, bool active) {
     const tng::DeckData* data = deck.track();
     const char* loadPath = nullptr;
 
@@ -154,15 +158,21 @@ const char* DeckView::draw(tng::Deck& deck) {
     }
 
     // --- title: artist - title ---------------------------------------------------
+    // The active deck's title is accented so it is obvious which deck the
+    // global keys (Space, pitch) target.
+    if (active) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.35f, 0.65f, 1.0f, 1.0f));
     if (data) {
         if (data->artist.empty()) {
             ImGui::Text("%s", data->title.c_str());
         } else {
             ImGui::Text("%s - %s", data->artist.c_str(), data->title.c_str());
         }
+    } else if (active) {
+        ImGui::Text("no track loaded");
     } else {
         ImGui::TextDisabled("no track loaded");
     }
+    if (active) ImGui::PopStyleColor();
 
     // --- waveforms: composite on top, 4 stem lanes below (all full width) ------
     if (data) {
@@ -198,11 +208,22 @@ const char* DeckView::draw(tng::Deck& deck) {
         ImGui::Spacing();
         const bool atEnd =
             deck.positionFrames() >= static_cast<double>(data->frames) - 1.0;
+        // Left block: buttons + time on the first line, beat/BPM under the
+        // buttons. Keeping the long beat text off the first line leaves the
+        // pitch fader and the VU meter inside the deck's column width (they
+        // were clipped at the panel edge otherwise).
+        ImGui::BeginGroup();
         const char* playLabel = deck.playing() ? "Pause" : "Play";
         if (ImGui::Button(playLabel, ImVec2(80.0f, 0.0f))) {
             if (!deck.playing() && atEnd) deck.requestSeek(0); // restart from end
             deck.setPlaying(!deck.playing());
         }
+        ImGui::SameLine();
+        // CUE (SPEC §4.5): v1 jumps to the track start and leaves the
+        // transport state alone. The full main-cue behavior (set at the
+        // current position when stopped, hold to preview, release to
+        // return) is M4d.
+        if (ImGui::Button("CUE", ImVec2(60.0f, 0.0f))) deck.requestSeek(0);
         ImGui::SameLine();
         char t1[32], t2[32];
         const double fs = static_cast<double>(std::max(data->sampleRate, 1u));
@@ -210,12 +231,12 @@ const char* DeckView::draw(tng::Deck& deck) {
         formatTime(static_cast<double>(data->frames) / fs, t2, sizeof(t2));
         ImGui::Text("%s / %s", t1, t2);
         if (data->bpm > 0.0f) {
-            ImGui::SameLine();
             const double beats = deck.positionFrames() / fs *
                                  static_cast<double>(data->bpm) * deck.rate() / 60.0;
             ImGui::TextDisabled("beat %.1f | %.1f BPM", std::fmod(beats, 4.0) + 1.0,
                                 static_cast<double>(data->bpm) * deck.rate());
         }
+        ImGui::EndGroup();
 
         // --- vertical pitch fader (SPEC §6), reversed like DJ gear: -------
         // top = slow, bottom = fast. The widget edits the inverted value, so
@@ -233,6 +254,31 @@ const char* DeckView::draw(tng::Deck& deck) {
             pitchPct_ = static_cast<float>((deck.rate() - 1.0) * 100.0); // idle: mirror
         }
         ImGui::Text("%+.2f%%", pitchPct_);
+        ImGui::EndGroup();
+
+        // --- per-deck VU meter (not in SPEC; small bonus) -------------------
+        // Peak of the deck's own output (pre line fader/crossfader), peak-hold
+        // with a fast fall so the bar is readable at 60 fps. Clamped: four
+        // hot stems can sum past 1.0, the bar just stays full.
+        ImGui::SameLine();
+        ImGui::BeginGroup();
+        ImGui::TextDisabled("VU");
+        const float vuPeak = std::min(1.0f, deck.blockPeak());
+        vuLevel_ = std::max(vuPeak, vuLevel_ * 0.88f);
+        const ImVec2 vuPos = ImGui::GetCursorScreenPos();
+        const float vuW = 22.0f;
+        const float vuH = 90.0f;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(vuPos, ImVec2(vuPos.x + vuW, vuPos.y + vuH),
+                          IM_COL32(14, 14, 18, 255));
+        const float fill = vuLevel_ * (vuH - 2.0f);
+        const ImU32 vuColor = vuLevel_ > 0.9f   ? IM_COL32(255, 70, 60, 255)
+                              : vuLevel_ > 0.7f ? IM_COL32(255, 200, 60, 255)
+                                                : IM_COL32(90, 210, 120, 255);
+        dl->AddRectFilled(ImVec2(vuPos.x + 1.0f, vuPos.y + vuH - 1.0f - fill),
+                          ImVec2(vuPos.x + vuW - 1.0f, vuPos.y + vuH - 1.0f), vuColor);
+        dl->AddRect(vuPos, ImVec2(vuPos.x + vuW, vuPos.y + vuH), IM_COL32(60, 60, 70, 255));
+        ImGui::Dummy(ImVec2(vuW, vuH));
         ImGui::EndGroup();
     }
 
