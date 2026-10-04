@@ -153,12 +153,12 @@ const char* DeckView::draw(tng::Deck& deck) {
         wfDirty_ = false;
     }
 
-    // --- title -----------------------------------------------------------------
+    // --- title: artist - title ---------------------------------------------------
     if (data) {
-        ImGui::Text("%s", data->title.c_str());
-        if (!data->artist.empty()) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("- %s", data->artist.c_str());
+        if (data->artist.empty()) {
+            ImGui::Text("%s", data->title.c_str());
+        } else {
+            ImGui::Text("%s - %s", data->artist.c_str(), data->title.c_str());
         }
     } else {
         ImGui::TextDisabled("no track loaded");

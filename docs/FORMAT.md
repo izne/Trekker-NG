@@ -66,6 +66,20 @@ matched by filename, so the folder name does not matter.
 - The beat grid in v1 is `bpm` + `first_beat_offset_ms` (the producer knows
   both from the DAW); no freeform beat markers yet.
 
+## Cue persistence
+
+When the user edits cue points in the app:
+
+- **Folder track** - `meta.json` is rewritten in place (written to
+  `meta.json.tmp` first, then atomically renamed; every other field is kept).
+- **Zip track** - the archive is **never modified**. Cues are written to a
+  sidecar file right next to it: `mytrack.zip.cues.json`, containing the same
+  object shape as `meta.json` (at minimum a `"cues"` array).
+
+On load, `cues` come from `meta.json`; a valid sidecar with a `"cues"` array
+overrides them. A missing or corrupt sidecar is ignored (the `meta.json` cues
+stand). Loop points are session-only and are never persisted.
+
 ## Example: zipping a track
 
 ```

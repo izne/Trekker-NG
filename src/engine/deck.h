@@ -20,6 +20,14 @@ struct Stem {
     int64_t frames = 0;
 };
 
+// A cue point (SPEC §4.5): a named marker from meta.json's "cues" array or
+// one set by the user. Cues live inside DeckData and swap with the track;
+// the audio thread never reads them (jumps go through requestSeek()).
+struct Cue {
+    std::string name;
+    double positionMs = 0.0;
+};
+
 // Immutable, fully prepared track data. Built off-thread by the loader and
 // only ever read by the audio thread (SPEC §4.7).
 struct DeckData {
@@ -30,6 +38,7 @@ struct DeckData {
     uint32_t sampleRate = 0;
     int64_t frames = 0; // all stems padded to this length
     std::array<Stem, 4> stems;
+    std::vector<Cue> cues; // hot cues (the M4d UI edits these on the UI thread)
 };
 
 // A deck: 4 stems sharing one playhead (SPEC §4.2).
@@ -88,6 +97,18 @@ public:
     void requestSeek(int64_t frame) noexcept;
     double positionFrames() const noexcept; // last rendered playhead (for display)
 
+    // --- loops (SPEC §4.5, session-only) ---
+    // Frame-range loop. setLoop() rejects invalid ranges (in < 0, out <= in)
+    // and keeps the previous points; the audio thread clamps the points to
+    // the loaded track and wraps sample-accurately with the seek declick.
+    // Points are per-track: setTrack()/publishTrack() clear them.
+    bool setLoop(int64_t inFrame, int64_t outFrame) noexcept;
+    void clearLoop() noexcept; // drops the points and deactivates
+    void setLoopActive(bool active) noexcept;
+    bool loopActive() const noexcept;
+    int64_t loopIn() const noexcept;
+    int64_t loopOut() const noexcept;
+
 private:
     void zero(float* out, uint32_t count) const noexcept;
 
@@ -103,6 +124,9 @@ private:
     std::atomic<int> interp_{static_cast<int>(InterpMode::Hermite)};
     std::atomic<double> displayPos_{0.0};
     std::atomic<int64_t> seekRequest_{-1}; // -1 = none; consumed by audio thread
+    std::atomic<int64_t> loopIn_{-1};      // loop points, frames (session-only)
+    std::atomic<int64_t> loopOut_{-1};
+    std::atomic<bool> loopActive_{false};
 
     // Audio-thread-only state (setTrack() precomputes the constants).
     double playhead_ = 0.0;

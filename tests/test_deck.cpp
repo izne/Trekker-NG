@@ -239,6 +239,15 @@ TEST_CASE("render path performs no heap allocation (SPEC 9.6)") {
         deck.render(buf.data(), 256);
         deck.setRate(0.95);
         deck.render(buf.data(), 256);
+        // Loop: points set/activated/cleared while rendering (SPEC 4.5).
+        deck.setLoop(1000, 5000);
+        deck.setLoopActive(true);
+        for (int i = 0; i < 4; ++i) {
+            deck.render(buf.data(), 256);
+        }
+        deck.setLoopActive(false);
+        deck.clearLoop();
+        deck.render(buf.data(), 256);
         count = scope.count();
     }
     CHECK(count == 0);
@@ -285,4 +294,146 @@ TEST_CASE("mixer: master gain and hard clamp (SPEC 4.6)") {
     buf = {1.5f, 0.0f, 0.0f, 0.0f};
     mixer.process(buf.data(), nullptr, buf.data(), 1);
     CHECK(buf[0] == 1.0f);
+}
+
+TEST_CASE("loop: playhead wraps at loop out (SPEC 4.5)") {
+    const uint32_t fs = 8000;
+    auto track = makeSineTrack(fs, 2.0, {440.0});
+    tng::Deck deck;
+    deck.setTrack(std::move(track));
+    REQUIRE(deck.setLoop(1000, 3000));
+    deck.setLoopActive(true);
+    deck.setPlaying(true);
+
+    renderFrames(deck, 8000); // 1 s: crosses loop out three times
+
+    // Stays inside the loop instead of running toward the track end.
+    CHECK(deck.positionFrames() >= 1000.0);
+    CHECK(deck.positionFrames() < 3000.0);
+    CHECK(deck.playing()); // end-of-track stop never fired
+}
+
+TEST_CASE("loop: setLoop rejects bad ranges and keeps state") {
+    tng::Deck deck;
+
+    CHECK_FALSE(deck.setLoop(100, 50)); // out <= in
+    CHECK_FALSE(deck.setLoop(-1, 500)); // negative in
+    CHECK_FALSE(deck.setLoop(10, 10));  // empty range
+    CHECK(deck.loopIn() == -1);
+    CHECK(deck.loopOut() == -1);
+
+    REQUIRE(deck.setLoop(100, 500));
+    CHECK(deck.loopIn() == 100);
+    CHECK(deck.loopOut() == 500);
+
+    CHECK_FALSE(deck.setLoop(200, 150)); // rejected: previous points kept
+    CHECK(deck.loopIn() == 100);
+    CHECK(deck.loopOut() == 500);
+
+    deck.setLoopActive(true);
+    CHECK(deck.loopActive());
+    deck.setLoopActive(false);
+    CHECK_FALSE(deck.loopActive());
+
+    deck.clearLoop();
+    CHECK(deck.loopIn() == -1);
+    CHECK(deck.loopOut() == -1);
+    CHECK_FALSE(deck.loopActive());
+}
+
+TEST_CASE("loop: wrap while playing is click-free (SPEC 9.3/9.4)") {
+    const uint32_t fs = 44100;
+    auto track = makeSineTrack(fs, 10.0, {440.0});
+    tng::Deck deck;
+    deck.setTrack(std::move(track));
+    REQUIRE(deck.setLoop(static_cast<int64_t>(1.0 * fs), static_cast<int64_t>(3.0 * fs)));
+    deck.setLoopActive(true);
+    deck.setPlaying(true);
+
+    const int64_t fs64 = fs;
+    auto out = renderFrames(deck, fs64 / 2);  // transport fade done (pos 0.5 s)
+    auto out2 = renderFrames(deck, fs64 * 4); // crosses loop out at ~3 s
+
+    // Crossfade worst-case step over the wrap: two 440 Hz paths blended over
+    // 88 frames ~= 0.012 + sine derivative 0.031 => < 0.08 (a hard cut shows
+    // up to the sine's full span, same threshold as the seek test above).
+    CHECK(maxStep(out, 0, fs64 / 2) < 0.08f);
+    CHECK(maxStep(out2, 0, fs64 * 4) < 0.08f);
+
+    // It actually wrapped: position is back inside the loop, still playing.
+    CHECK(deck.positionFrames() >= 1.0 * fs);
+    CHECK(deck.positionFrames() < 3.0 * fs);
+    CHECK(deck.playing());
+}
+
+TEST_CASE("loop: activation past loop out wraps with overshoot (SPEC 4.5)") {
+    const uint32_t fs = 8000;
+    tng::Deck deck;
+    deck.setTrack(makeSineTrack(fs, 10.0, {440.0}));
+    REQUIRE(deck.setLoop(1000, 3000));
+    deck.setPlaying(true);
+    renderFrames(deck, 500); // transport fade-in done
+
+    deck.requestSeek(9000); // way past the loop out
+    deck.setLoopActive(true);
+    renderFrames(deck, 100);
+
+    // 9000 - 3000 = 6000, fmod by the loop length 2000 -> 0 => lands at in.
+    CHECK(deck.positionFrames() >= 1000.0);
+    CHECK(deck.positionFrames() < 3000.0);
+}
+
+TEST_CASE("loop: inactive loop never wraps; toggling starts/stops wrapping") {
+    const uint32_t fs = 8000;
+    tng::Deck deck;
+    deck.setTrack(makeSineTrack(fs, 10.0, {440.0})); // 80000 frames
+    REQUIRE(deck.setLoop(2000, 4000));
+    deck.setPlaying(true);
+
+    renderFrames(deck, 6000); // inactive: runs straight past the loop out
+    CHECK(deck.positionFrames() >= 4000.0);
+
+    deck.setLoopActive(true);
+    renderFrames(deck, 3000); // wraps back inside the loop
+    CHECK(deck.positionFrames() >= 2000.0);
+    CHECK(deck.positionFrames() < 4000.0);
+
+    deck.setLoopActive(false);
+    renderFrames(deck, 3000); // off again: leaves the loop region
+    CHECK(deck.positionFrames() >= 4000.0);
+}
+
+TEST_CASE("loop: loop reaching the track end keeps playing (SPEC 4.5)") {
+    const uint32_t fs = 8000;
+    tng::Deck deck;
+    deck.setTrack(makeSineTrack(fs, 2.0, {440.0})); // 16000 frames
+    REQUIRE(deck.setLoop(12000, 16000));
+    deck.setLoopActive(true);
+    deck.setPlaying(true);
+
+    renderFrames(deck, 20000); // would end the track without the loop
+
+    CHECK(deck.playing());
+    CHECK(deck.positionFrames() >= 12000.0);
+    CHECK(deck.positionFrames() < 16000.0);
+}
+
+TEST_CASE("loop: hot publish and setTrack clear the points (SPEC 4.7)") {
+    const uint32_t fs = 8000;
+    tng::Deck deck;
+    deck.setTrack(makeSineTrack(fs, 2.0, {440.0}));
+    REQUIRE(deck.setLoop(500, 1000));
+    deck.setLoopActive(true);
+
+    deck.publishTrack(makeSineTrack(fs, 3.0, {880.0}));
+    CHECK(deck.loopIn() == -1);
+    CHECK(deck.loopOut() == -1);
+    CHECK_FALSE(deck.loopActive());
+
+    REQUIRE(deck.setLoop(700, 1500));
+    deck.setLoopActive(true);
+    deck.setTrack(makeSineTrack(fs, 4.0, {220.0}));
+    CHECK(deck.loopIn() == -1);
+    CHECK(deck.loopOut() == -1);
+    CHECK_FALSE(deck.loopActive());
 }

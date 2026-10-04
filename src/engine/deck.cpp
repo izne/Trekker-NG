@@ -40,6 +40,7 @@ void Deck::setTrack(std::unique_ptr<DeckData> data) {
     displayPos_.store(0.0, std::memory_order_relaxed);
     playing_.store(false, std::memory_order_release);
     seekRequest_.store(-1, std::memory_order_relaxed);
+    clearLoop(); // points belong to the previous track
 
     const uint32_t fs = data_ ? data_->sampleRate : 44100;
     rampStep_ = static_cast<float>(1.0 / (kRampSeconds * static_cast<double>(fs)));
@@ -62,6 +63,8 @@ void Deck::publishTrack(std::unique_ptr<DeckData> data) {
     if (data_) retired_.push_back(data_.release());
     data_ = std::move(data);
     dataPub_.store(data_.get(), std::memory_order_release);
+    clearLoop(); // loop points reference the old track's positions (cues,
+                  // which live in DeckData, swap with the track instead)
 }
 
 void Deck::drainRetired() {
@@ -141,6 +144,35 @@ double Deck::positionFrames() const noexcept {
     return displayPos_.load(std::memory_order_relaxed);
 }
 
+bool Deck::setLoop(int64_t inFrame, int64_t outFrame) noexcept {
+    if (inFrame < 0 || outFrame <= inFrame) return false;
+    loopIn_.store(inFrame, std::memory_order_relaxed);
+    loopOut_.store(outFrame, std::memory_order_relaxed);
+    return true;
+}
+
+void Deck::clearLoop() noexcept {
+    loopIn_.store(-1, std::memory_order_relaxed);
+    loopOut_.store(-1, std::memory_order_relaxed);
+    loopActive_.store(false, std::memory_order_relaxed);
+}
+
+void Deck::setLoopActive(bool active) noexcept {
+    loopActive_.store(active, std::memory_order_relaxed);
+}
+
+bool Deck::loopActive() const noexcept {
+    return loopActive_.load(std::memory_order_relaxed);
+}
+
+int64_t Deck::loopIn() const noexcept {
+    return loopIn_.load(std::memory_order_relaxed);
+}
+
+int64_t Deck::loopOut() const noexcept {
+    return loopOut_.load(std::memory_order_relaxed);
+}
+
 void Deck::render(float* out, uint32_t frameCount) noexcept {
     // Consume a pending playhead jump first, even while paused, so the
     // position display follows immediately.
@@ -175,6 +207,23 @@ void Deck::render(float* out, uint32_t frameCount) noexcept {
     const double rateTarget = rateTarget_.load(std::memory_order_relaxed);
     const InterpMode mode = interp();
 
+    // Loop (SPEC §4.5): snapshot the points once per block; the wrap itself
+    // is checked per sample below so it lands on the exact crossing frame.
+    int64_t loopLi = loopIn_.load(std::memory_order_relaxed);
+    int64_t loopLo = loopOut_.load(std::memory_order_relaxed);
+    bool loopOn = loopActive_.load(std::memory_order_relaxed);
+    double loopInF = 0.0;
+    double loopOutF = 0.0;
+    if (loopOn) {
+        if (loopLo > d->frames) loopLo = d->frames;
+        if (loopLi < 0 || loopLo <= loopLi) {
+            loopOn = false; // stale points against this track
+        } else {
+            loopInF = static_cast<double>(loopLi);
+            loopOutF = static_cast<double>(loopLo);
+        }
+    }
+
     if (seek >= 0 && !adopted) { // a seek racing a publish targets the old track: drop
         if (outputGain_ > 0.0f) {
             // Audible jump: declick with a crossfade from the old position.
@@ -198,6 +247,20 @@ void Deck::render(float* out, uint32_t frameCount) noexcept {
             l += readFrame(stem.data.data(), stem.frames, 2, 0, pos, mode) * g;
             r += readFrame(stem.data.data(), stem.frames, 2, 1, pos, mode) * g;
         }
+    };
+
+    // Loop wrap (SPEC §4.5): the same ~2 ms declick as a seek - the old path
+    // continues just past the loop end while the new one starts at loopIn.
+    auto wrapLoop = [&]() {
+        if (outputGain_ > 0.0f) { // silent jump: plain move, nothing to click
+            if (xfadeRemaining_ <= 0) xfadeOldPos_ = playhead_;
+            xfadeRemaining_ = declickFrames_;
+        }
+        double over = playhead_ - loopOutF;
+        if (over < 0.0) over = 0.0;
+        const double len = loopOutF - loopInF;
+        if (len > 0.0) over = std::fmod(over, len); // activation far past out
+        playhead_ = loopInF + over;
     };
 
     uint32_t i = 0;
@@ -247,6 +310,9 @@ void Deck::render(float* out, uint32_t frameCount) noexcept {
             xfadeOldPos_ += rateSmoothed_;
             --xfadeRemaining_;
         } else {
+            if (loopOn && playing && playhead_ >= loopOutF) {
+                wrapLoop(); // activation/seek landed past the loop end
+            }
             if (playhead_ >= static_cast<double>(d->frames)) {
                 playhead_ = static_cast<double>(d->frames);
                 break; // end of track: stop (SPEC §4.2)
@@ -257,6 +323,9 @@ void Deck::render(float* out, uint32_t frameCount) noexcept {
             mix(playhead_, left, right);
             if (playing) {
                 playhead_ += rateSmoothed_;
+                if (loopOn && playhead_ >= loopOutF) {
+                    wrapLoop(); // exact crossing sample (SPEC §4.5)
+                }
             }
         }
 

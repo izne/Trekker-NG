@@ -164,8 +164,8 @@ int main(int argc, char** argv) {
         const tng::DeckData* d = deck.track();
         char buf[320];
         std::snprintf(buf, sizeof(buf), "loaded: %s%s%s | %u Hz | %.1f s",
-                      d->title.c_str(), d->artist.empty() ? "" : " - ",
-                      d->artist.c_str(), d->sampleRate,
+                      d->artist.c_str(), d->artist.empty() ? "" : " - ",
+                      d->title.c_str(), d->sampleRate,
                       static_cast<double>(d->frames) / static_cast<double>(d->sampleRate));
         setStatus(buf, !deviceUp);
     };

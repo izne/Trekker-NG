@@ -8,10 +8,10 @@ stem features of Traktor / djay, but for your own exported stems.
 Written in C++17. Windows first (MSYS2/MinGW64); the engine is kept portable
 so Linux/macOS can follow.
 
-**Current status: M3 of 6** - the ImGui UI is in: drag & drop a track folder
-or `.zip` onto the window and it loads, with a waveform overview, four
-per-stem waveform lanes, stem toggles, transport and a pitch fader on one deck.
-The project is governed by [`SPEC.md`](SPEC.md).
+**Current status: M4 of 6 (in progress)** - M4a/M4b are in: the equal-power
+crossfader with line/master gains and a two-deck audio path in the engine,
+plus frame-accurate loops and cue points (parse + persistence). The UI is
+still single-deck until M4c. The project is governed by [`SPEC.md`](SPEC.md).
 
 ![Trekker-NG deck view - composite waveform on top, four per-stem lanes below](docs/ui-m3.png)
 
@@ -20,7 +20,7 @@ The project is governed by [`SPEC.md`](SPEC.md).
 | **M1** | Pitch PoC (console): load stems, one playhead, per-stem mute, pitch ±10% with cubic Hermite | done |
 | **M2** | Engine cleanup: rate smoothing, declick ramps, mixer extraction, unit tests | done |
 | **M3** | ImGui UI, one deck, track-format loader, waveforms (composite + per-stem lanes) | done |
-| **M4** | Second deck, crossfader, master section, hot cues, loops, beat display | planned |
+| **M4** | Second deck, crossfader, master section, hot cues, loops, beat display | in progress |
 | **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings | planned |
 | **M6** | Packaging: Windows build, Linux AppImage, docs, example tracks | planned |
 
@@ -38,6 +38,10 @@ The project is governed by [`SPEC.md`](SPEC.md).
   recommended exports are WAV or FLAC (MP3 delay/padding can misalign stems).
 - **Load from a folder or a zip** - loose files, or a zip with an enclosing
   folder; `meta.json` supplies title/artist/BPM/stem colors.
+- **Cue points & loops (engine)** - cues load from `meta.json` and persist
+  edits (folder tracks rewrite `meta.json`, zip tracks get a `.cues.json`
+  sidecar next to the archive); loops wrap on the exact crossing sample with
+  the same 2 ms declick as a seek. Transport controls for both arrive in M4d.
 - **Offline render mode** - render to WAV without a soundcard (`--render`),
   used for tests and automation.
 - **ImGui UI with drag & drop** - drop a track folder or `.zip` anywhere on
@@ -59,7 +63,7 @@ dist\trekker-ng.exe examples\magnat.zip
 
 or start it without arguments and **drag `examples/magnat.zip` onto the
 window**. (`examples/magnat.zip` is a 4-stem example track:
-`drums/bass/melody/vocals` at 128 BPM.)
+`Drums/Synths/Bass/Effects` at 128 BPM.)
 
 `dist\trekker-console.exe` is the old console front-end (same track argument,
 plus the `--render` offline mode).
@@ -86,8 +90,8 @@ and `SDL2.dll`. Failing tests block the build, so a `dist/` build is known-good.
 ## Running the example track
 
 The repository ships `examples/magnat.zip` - a complete 4-stem demo track
-(**Magnat - izne**, 128 BPM, 153.8 s, 44.1 kHz FLAC stems: Drums, Bass,
-Melody, Vocals), zipped with its `meta.json`:
+(**izne - Magnat**, 128 BPM, 153.8 s, 44.1 kHz FLAC stems: Drums, Synths,
+Bass, Effects), zipped with its `meta.json`:
 
 ```
 dist\trekker-console.exe examples\magnat.zip
@@ -99,9 +103,9 @@ press `Space`):
 ```
 track: Magnat - izne | 128.0 BPM | 44100 Hz | 153.8s
   stem 1: Drums        ok
-  stem 2: Bass         ok
-  stem 3: Melody       ok
-  stem 4: Vocals       ok
+  stem 2: Synths       ok
+  stem 3: Bass         ok
+  stem 4: Effects      ok
 
 loaded: Magnat - izne | 44100 Hz | 4 stems
 keys: Space play/pause | 1-4 stem toggle (Shift=solo) | A all on
@@ -119,8 +123,8 @@ It shows play state, pitch, effective BPM, position and the 4 stem states.
 Things to try:
 
 1. `Space` - start; the 5 ms fade-in means no click at onset.
-2. `1` `2` `3` `4` - drop each stem out and back (Drums, Bass, Melody,
-   Vocals); every toggle is ramped, never a pop.
+2. `1` `2` `3` `4` - drop each stem out and back (Drums, Synths, Bass,
+   Effects); every toggle is ramped, never a pop.
 3. `=` / `]` (or `-` / `[`) - pitch the whole track up/down together like a
    record, up to ±10 %. Hold `Shift` for 0.01 % micro-steps, `0` resets.
 4. `Space` again to pause and resume - still click-free - and `Q` to quit.
@@ -218,10 +222,10 @@ simply silent). Full details: [`docs/FORMAT.md`](docs/FORMAT.md).
 ```
 src/
   engine/            no UI dependencies; builds as static libtrekker_engine
-    deck.{h,cpp}             4 stems, one playhead, smoothing + declick
+    deck.{h,cpp}             4 stems, one playhead, smoothing + declick, loops
     interpolate.{h,cpp}      pure Hermite / linear interpolator
-    mixer.{h,cpp}            master gain + clamp (crossfader in M4/M5)
-    track_loader.{h,cpp}     folder/zip -> DeckData, meta.json
+    mixer.{h,cpp}            line/cross/master gains, equal-power curve, clamp
+    track_loader.{h,cpp}     folder/zip -> DeckData, meta.json, cue persistence
     audio_device.{h,cpp}     miniaudio device, realtime callback
   ui/                M3 ImGui + SDL2 front-end (main loop, deck view)
   console/           M1/M2 console front-end (kept as trekker-console)
@@ -258,7 +262,10 @@ synthesized in memory:
 5. **Interpolator** - integer positions are bit-identical; rate 1.0 output
    equals the input byte-for-byte
 6. **Realtime safety** - the render path performs zero heap allocations
-   (plus transport pause/resume and mixer checks)
+   (plus transport pause/resume, loops and mixer checks)
+7. **Loops & cues** - loop wraps land on the crossing sample, stay click-free
+   and reject bad ranges; cue arrays parse/round-trip with unknown
+   `meta.json` fields preserved
 
 Manual acceptance (SPEC §9): listen at ±10 % on real music - it should sound
 like pitching a record, with no warble, phasing, or digital smear.

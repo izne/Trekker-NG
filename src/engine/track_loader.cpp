@@ -206,6 +206,25 @@ struct ZipTrackSource : TrackSource {
     }
 };
 
+// Fills `out` from a parsed "cues" JSON array (SPEC §4.5): skips non-object
+// entries, ignores wrong field types (name defaults "", position defaults 0),
+// clamps negative positions to 0.
+void parseCueArray(const json& arr, std::vector<tng::Cue>& out) {
+    out.clear();
+    for (const auto& c : arr) {
+        if (!c.is_object()) continue;
+        tng::Cue cue;
+        if (c.contains("name") && c["name"].is_string()) {
+            cue.name = c["name"].get<std::string>();
+        }
+        if (c.contains("position_ms") && c["position_ms"].is_number()) {
+            cue.positionMs = c["position_ms"].get<double>();
+        }
+        if (cue.positionMs < 0.0) cue.positionMs = 0.0;
+        out.push_back(std::move(cue));
+    }
+}
+
 } // namespace
 
 namespace tng {
@@ -266,6 +285,24 @@ LoadResult loadTrack(const std::filesystem::path& path) {
     data->firstBeatOffsetMs = meta.value("first_beat_offset_ms", 0.0);
     if (data->title.empty()) {
         data->title = isDir ? path.filename().u8string() : path.stem().u8string();
+    }
+
+    // --- cue points (SPEC §4.5): meta.json, then the zip sidecar wins ---
+    if (meta.contains("cues") && meta["cues"].is_array()) {
+        parseCueArray(meta["cues"], data->cues);
+    }
+    if (isZip) {
+        std::ifstream sc(fs::path(path.u8string() + ".cues.json"), std::ios::binary);
+        if (sc) {
+            const std::string scText((std::istreambuf_iterator<char>(sc)),
+                                     std::istreambuf_iterator<char>());
+            const json scDoc = json::parse(scText, nullptr, false);
+            // Corrupt/incomplete sidecar: keep the meta.json cues (SPEC §4.5).
+            if (!scDoc.is_discarded() && scDoc.is_object() && scDoc.contains("cues") &&
+                scDoc["cues"].is_array()) {
+                parseCueArray(scDoc["cues"], data->cues);
+            }
+        }
     }
 
     if (!meta.contains("stems") || !meta["stems"].is_array() || meta["stems"].empty()) {
@@ -345,6 +382,95 @@ LoadResult loadTrack(const std::filesystem::path& path) {
     data->frames = frames;
     result.data = std::move(data);
     return result;
+}
+
+bool parseCuesFromMeta(const std::string& metaText, std::vector<Cue>& out,
+                       std::string* error) {
+    const json doc = json::parse(metaText, nullptr, false);
+    if (doc.is_discarded() || !doc.is_object()) {
+        if (error) *error = "not valid JSON";
+        return false;
+    }
+    if (doc.contains("cues") && doc["cues"].is_array()) {
+        parseCueArray(doc["cues"], out);
+    }
+    return true;
+}
+
+bool setCuesInMeta(const std::string& metaText, const std::vector<Cue>& cues,
+                   std::string& outMetaText, std::string* error) {
+    json doc = json::parse(metaText, nullptr, false);
+    if (doc.is_discarded() || !doc.is_object()) {
+        if (error) *error = "not valid JSON";
+        return false;
+    }
+    json arr = json::array();
+    for (const Cue& c : cues) {
+        json entry;
+        entry["name"] = c.name;
+        entry["position_ms"] = c.positionMs;
+        arr.push_back(std::move(entry));
+    }
+    doc["cues"] = std::move(arr);
+    outMetaText = doc.dump(2);
+    return true;
+}
+
+bool saveCues(const std::filesystem::path& trackPath, const std::vector<Cue>& cues,
+              std::string* error) {
+    auto fail = [&](const std::string& msg) {
+        if (error) *error = msg;
+        return false;
+    };
+
+    if (!fs::exists(trackPath)) {
+        return fail("path not found: " + pathText(trackPath));
+    }
+    const bool isDir = fs::is_directory(trackPath);
+    const bool isZip = fs::is_regular_file(trackPath) && trackPath.extension() == ".zip";
+    if (!isDir && !isZip) {
+        return fail("not a track folder or .zip file: " + pathText(trackPath));
+    }
+
+    std::string text;
+    std::string err;
+    if (isDir) {
+        // Folder track: rewrite meta.json in place, keeping every other field
+        // (SPEC §5 unknown fields survive; key order may change).
+        const fs::path metaPath = trackPath / "meta.json";
+        std::ifstream in(metaPath, std::ios::binary);
+        if (!in) return fail("cannot open file: " + pathText(metaPath));
+        const std::string metaText((std::istreambuf_iterator<char>(in)),
+                                   std::istreambuf_iterator<char>());
+        in.close();
+        if (!setCuesInMeta(metaText, cues, text, &err)) {
+            return fail(pathText(metaPath) + ": " + err);
+        }
+        const fs::path tmpPath = trackPath / "meta.json.tmp";
+        {
+            std::ofstream out(tmpPath, std::ios::binary | std::ios::trunc);
+            if (!out) return fail("cannot write file: " + pathText(tmpPath));
+            out << text;
+            if (!out) return fail("cannot write file: " + pathText(tmpPath));
+        }
+        std::error_code ec;
+        fs::rename(tmpPath, metaPath, ec); // atomic replace on Windows and POSIX
+        if (ec) {
+            fs::remove(tmpPath, ec);
+            return fail("cannot replace " + pathText(metaPath) + ": " + ec.message());
+        }
+    } else {
+        // Zip track: sidecar next to the archive; the zip itself stays
+        // read-only (loadTrack prefers the sidecar over meta.json's cues).
+        if (!setCuesInMeta("{}", cues, text, &err)) return fail(err); // "{}" is valid
+        fs::path sidecar = trackPath;
+        sidecar += ".cues.json";
+        std::ofstream out(sidecar, std::ios::binary | std::ios::trunc);
+        if (!out) return fail("cannot write file: " + pathText(sidecar));
+        out << text;
+        if (!out) return fail("cannot write file: " + pathText(sidecar));
+    }
+    return true;
 }
 
 } // namespace tng
