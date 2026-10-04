@@ -1,4 +1,4 @@
-// StemDeck M1 - Pitch PoC (console front-end).
+// Trekker-NG console front-end (pitch PoC, M1-M2).
 //
 // Loads one track (folder or .zip with meta.json + 4 stems), plays it
 // through miniaudio with a shared playhead per SPEC §4.2, and offers
@@ -60,10 +60,10 @@ BOOL WINAPI consoleHandler(DWORD type) {
 
 void printUsage() {
     std::printf(
-        "StemDeck M2 (console)\n"
+        "Trekker-NG M2 (console)\n"
         "\n"
         "usage:\n"
-        "  stemdeck <track.zip | track-folder> [options]\n"
+        "  trekker-ng <track.zip | track-folder> [options]\n"
         "\n"
         "options:\n"
         "  --render <out.wav>  render offline to a WAV instead of playing (no soundcard)\n"
@@ -156,8 +156,8 @@ std::string formatPitch(double rate) {
     return buf;
 }
 
-int runRender(const Options& opt, sde::Deck& deck, const sde::DeckData& data) {
-    sde::Mixer mixer; // same master gain + clamp as the live path
+int runRender(const Options& opt, tng::Deck& deck, const tng::DeckData& data) {
+    tng::Mixer mixer; // same master gain + clamp as the live path
     deck.setRate(opt.rate);
     deck.setPlaying(true);
 
@@ -204,9 +204,9 @@ int runRender(const Options& opt, sde::Deck& deck, const sde::DeckData& data) {
     return 0;
 }
 
-int runLive(const Options& opt, sde::Deck& deck, const sde::DeckData& data) {
-    sde::Mixer mixer;
-    sde::AudioDevice device;
+int runLive(const Options& opt, tng::Deck& deck, const tng::DeckData& data) {
+    tng::Mixer mixer;
+    tng::AudioDevice device;
     std::string err;
     if (!device.init(&deck, &mixer, data.sampleRate, kPeriodFrames, &err)) {
         std::fprintf(stderr, "error: audio device init failed: %s\n", err.c_str());
@@ -226,7 +226,7 @@ int runLive(const Options& opt, sde::Deck& deck, const sde::DeckData& data) {
         "      =+] pitch up | -_[ pitch down (Shift = 0.01%%) | 0 reset | I interp | Q quit\n"
         "\n",
         data.title.c_str(), data.artist.empty() ? "" : " - ", data.artist.c_str(),
-        data.sampleRate, sde::Deck::kStemCount);
+        data.sampleRate, tng::Deck::kStemCount);
 
     int soloIdx = -1;
     bool dirty = true;
@@ -298,9 +298,9 @@ int runLive(const Options& opt, sde::Deck& deck, const sde::DeckData& data) {
                     dirty = true;
                     break;
                 case 'i': case 'I': // debug: toggle cubic Hermite <-> linear (SPEC §4.3)
-                    deck.setInterp(deck.interp() == sde::InterpMode::Hermite
-                                       ? sde::InterpMode::Linear
-                                       : sde::InterpMode::Hermite);
+                    deck.setInterp(deck.interp() == tng::InterpMode::Hermite
+                                       ? tng::InterpMode::Linear
+                                       : tng::InterpMode::Hermite);
                     dirty = true;
                     break;
                 case 27: // ESC
@@ -369,18 +369,18 @@ int main(int argc, char** argv) {
         return err.empty() ? 0 : 1;
     }
 
-    sde::LoadResult loaded = sde::loadTrack(opt.track);
+    tng::LoadResult loaded = tng::loadTrack(opt.track);
     if (!loaded.ok()) {
         std::fprintf(stderr, "error: %s\n", loaded.error.c_str());
         return 1;
     }
-    const sde::DeckData& data = *loaded.data;
+    const tng::DeckData& data = *loaded.data;
 
-    sde::Deck deck;
+    tng::Deck deck;
     if (opt.render) {
         // Apply the stem mask before setTrack() so gains start at the target
         // values (no fade-in at render start).
-        for (int i = 0; i < sde::Deck::kStemCount; ++i) {
+        for (int i = 0; i < tng::Deck::kStemCount; ++i) {
             deck.setStem(i, opt.stems[static_cast<size_t>(i)] == '1');
         }
     }
@@ -390,8 +390,8 @@ int main(int argc, char** argv) {
     if (!data.artist.empty()) std::printf(" - %s", data.artist.c_str());
     std::printf(" | %.1f BPM | %u Hz | %.1fs\n", data.bpm, data.sampleRate,
                 static_cast<double>(data.frames) / data.sampleRate);
-    for (int i = 0; i < sde::Deck::kStemCount; ++i) {
-        const sde::Stem& s = data.stems[static_cast<size_t>(i)];
+    for (int i = 0; i < tng::Deck::kStemCount; ++i) {
+        const tng::Stem& s = data.stems[static_cast<size_t>(i)];
         std::printf("  stem %d: %-12s %s\n", i + 1, s.frames > 0 ? s.name.c_str() : "(silent)",
                     s.frames > 0 ? "ok" : "-");
     }

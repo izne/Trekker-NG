@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace sde {
+namespace tng {
 
 // Interpolator selection. Hermite (Catmull-Rom) is the default; linear is a
 // debug option (SPEC §4.3).
@@ -27,4 +27,4 @@ float readFrame(const float* data,
                 double pos,
                 InterpMode mode);
 
-} // namespace sde
+} // namespace tng

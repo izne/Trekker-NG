@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a StemDeck test track (SPEC §9) into the project's temp/ folder.
+"""Generate a Trekker-NG test track (SPEC §9) into the project's temp/ folder.
 
 Stems (all stereo, 44.1 kHz, same length):
   stem 1: 440 Hz sine        (pitch-accuracy reference)
@@ -90,7 +90,7 @@ def main() -> int:
     meta = {
         "format_version": 1,
         "title": "Test Track",
-        "artist": "StemDeck tools",
+        "artist": "Trekker-NG tools",
         "bpm": args.bpm,
         "first_beat_offset_ms": 0.0,
         "stems": [

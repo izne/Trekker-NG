@@ -3,7 +3,7 @@
 #include <atomic>
 #include <cstdint>
 
-namespace sde {
+namespace tng {
 
 // Master section of the mixer (SPEC §4.1/§4.6): master gain + safety clamp.
 // The crossfader, line faders and EQ arrive with the two-deck UI (M4/M5).
@@ -21,4 +21,4 @@ private:
     std::atomic<float> masterGain_{0.7f}; // M1/M2 default until the master section
 };
 
-} // namespace sde
+} // namespace tng

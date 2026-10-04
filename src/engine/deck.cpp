@@ -4,7 +4,7 @@
 #include <cmath>
 #include <cstring>
 
-namespace sde {
+namespace tng {
 
 namespace {
 // Click-free transitions (SPEC §4.4/§4.5):
@@ -224,4 +224,4 @@ void Deck::render(float* out, uint32_t frameCount) noexcept {
     displayPos_.store(playhead_, std::memory_order_relaxed);
 }
 
-} // namespace sde
+} // namespace tng

@@ -1,4 +1,4 @@
-# StemDeck: Spec & Requirements
+# Trekker-NG: Spec & Requirements
 
 A minimal DJ player for **producer-made stems** with **Technics-style vinyl pitch**.
 Each track is a set of 4 stereo stems (drums, bass, melody, "other", names are free-form) that play in perfect sync and can be switched on/off live while mixing two decks.
@@ -104,7 +104,7 @@ The audio callback must **never**: allocate, lock a mutex, touch disk, log via `
 - Buffer swaps (loading a new track) are done by preparing the new deck data off-thread, then publishing it with an atomic pointer swap. The old data is freed on a non-audio thread.
 - Process in float32 internally. Output buffer size is configurable (default 256 frames, with target latency under 15 ms where the OS allows).
 
-## 5. Track format ("StemDeck track", v1)
+## 5. Track format ("Trekker-NG track", v1)
 
 A **folder or a `.zip`** (the loader supports both) containing:
 
@@ -158,7 +158,7 @@ mytrack/
 ## 7. Project structure
 
 ```
-stemdeck/
+trekker-ng/
   CMakeLists.txt
   build.sh             (one-command rebuild in the MINGW64 environment)
   AGENTS.md            (copy of this file or a pointer to it)
@@ -167,7 +167,7 @@ stemdeck/
   dist/                (latest runnable build for the user to test, self-contained)
   docs/FORMAT.md
   src/
-    engine/            (no UI deps, builds as libstemdeck_engine)
+    engine/            (no UI deps, builds as libtrekker_engine)
       deck.{h,cpp}
       interpolate.{h,cpp}
       mixer.{h,cpp}

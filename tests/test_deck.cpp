@@ -16,7 +16,7 @@ using namespace tutil;
 TEST_CASE("pitch: 440 Hz at rate 1.10 measures 484 +/- 0.5 Hz (SPEC 9.1)") {
     const uint32_t fs = 44100;
     auto track = makeSineTrack(fs, 10.0, {440.0});
-    sde::Deck deck;
+    tng::Deck deck;
     deck.setTrack(std::move(track));
     deck.setRate(1.10);
     deck.setPlaying(true);
@@ -32,7 +32,7 @@ TEST_CASE("stem lock: click trains stay locked for 10 min with random rate (SPEC
     const double seconds = 600.0;
     const int64_t period = 800; // one click per 0.1 s
     auto track = makeClickTrack(fs, seconds, period, /*stemCount=*/2);
-    sde::Deck deck;
+    tng::Deck deck;
     deck.setTrack(std::move(track));
     deck.setPlaying(true);
 
@@ -114,7 +114,7 @@ TEST_CASE("stem lock: click trains stay locked for 10 min with random rate (SPEC
 TEST_CASE("mute: stem toggling never jumps the waveform (SPEC 9.3)") {
     const uint32_t fs = 44100;
     auto track = makeSineTrack(fs, 10.0, {440.0});
-    sde::Deck deck;
+    tng::Deck deck;
     deck.setTrack(std::move(track));
     deck.setPlaying(true);
 
@@ -150,7 +150,7 @@ TEST_CASE("mute: stem toggling never jumps the waveform (SPEC 9.3)") {
 TEST_CASE("cue jump: seek while playing produces no discontinuity (SPEC 9.4)") {
     const uint32_t fs = 44100;
     auto track = makeSineTrack(fs, 10.0, {440.0});
-    sde::Deck deck;
+    tng::Deck deck;
     deck.setTrack(std::move(track));
     deck.setPlaying(true);
 
@@ -175,7 +175,7 @@ TEST_CASE("cue jump: seek while playing produces no discontinuity (SPEC 9.4)") {
 TEST_CASE("pause and resume are click-free (SPEC 4.5)") {
     const uint32_t fs = 44100;
     auto track = makeSineTrack(fs, 10.0, {440.0});
-    sde::Deck deck;
+    tng::Deck deck;
     deck.setTrack(std::move(track));
     deck.setPlaying(true);
 
@@ -211,7 +211,7 @@ TEST_CASE("allocation counter is armed (sanity for SPEC 9.6)") {
 TEST_CASE("render path performs no heap allocation (SPEC 9.6)") {
     const uint32_t fs = 44100;
     auto track = makeSineTrack(fs, 10.0, {440.0, 0.0});
-    sde::Deck deck;
+    tng::Deck deck;
     deck.setTrack(std::move(track));
     deck.setPlaying(true);
 
@@ -245,7 +245,7 @@ TEST_CASE("render path performs no heap allocation (SPEC 9.6)") {
 }
 
 TEST_CASE("mixer: master gain and hard clamp (SPEC 4.6)") {
-    sde::Mixer mixer;
+    tng::Mixer mixer;
     CHECK(mixer.masterGain() == doctest::Approx(0.7f));
 
     std::vector<float> buf = {1.0f, -1.0f, 2.0f, -2.0f};

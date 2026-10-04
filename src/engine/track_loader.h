@@ -6,7 +6,7 @@
 #include <memory>
 #include <string>
 
-namespace sde {
+namespace tng {
 
 struct LoadResult {
     std::unique_ptr<DeckData> data; // null on failure
@@ -15,9 +15,9 @@ struct LoadResult {
     bool ok() const { return data != nullptr; }
 };
 
-// Loads a StemDeck track: either a folder or a .zip containing meta.json and
+// Loads a Trekker-NG track: either a folder or a .zip containing meta.json and
 // 1..4 stem audio files (SPEC §5). All stems are fully decoded to RAM as
 // stereo float32 and padded to equal length. Missing stems stay silent.
 LoadResult loadTrack(const std::filesystem::path& path);
 
-} // namespace sde
+} // namespace tng

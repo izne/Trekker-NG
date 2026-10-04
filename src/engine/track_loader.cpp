@@ -208,7 +208,7 @@ struct ZipTrackSource : TrackSource {
 
 } // namespace
 
-namespace sde {
+namespace tng {
 
 LoadResult loadTrack(const std::filesystem::path& path) {
     LoadResult result;
@@ -347,4 +347,4 @@ LoadResult loadTrack(const std::filesystem::path& path) {
     return result;
 }
 
-} // namespace sde
+} // namespace tng

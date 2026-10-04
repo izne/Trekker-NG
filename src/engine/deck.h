@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace sde {
+namespace tng {
 
 // One stereo stem: interleaved float32 L/R, fully decoded to RAM (SPEC §4.2).
 // An empty `data` (or frames == 0) means "missing stem = silent" (SPEC §5).
@@ -103,4 +103,4 @@ private:
     double xfadeOldPos_ = 0.0; // pre-jump position feeding the crossfade
 };
 
-} // namespace sde
+} // namespace tng

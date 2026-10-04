@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string>
 
-namespace sde {
+namespace tng {
 
 class Deck;
 class Mixer;
@@ -35,4 +35,4 @@ private:
     Impl* impl_;
 };
 
-} // namespace sde
+} // namespace tng

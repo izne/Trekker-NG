@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# One-command build for StemDeck inside the MSYS2 MINGW64 environment.
-#   ./build.sh            build -> dist/stemdeck.exe (runs tests when present)
-#   ./build.sh release    build + pack dist/stemdeck-<VERSION>-win64.zip
+# One-command build for Trekker-NG inside the MSYS2 MINGW64 environment.
+#   ./build.sh            build -> dist/trekker-ng.exe (runs tests when present)
+#   ./build.sh release    build + pack dist/trekker-ng-<VERSION>-win64.zip
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -10,7 +10,7 @@ if [ -d /d/msys64/mingw64/bin ] && [[ ":$PATH:" != *":/d/msys64/mingw64/bin:"* ]
   export PATH="/d/msys64/mingw64/bin:$PATH"
 fi
 
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSTEMDECK_BUILD_TESTS=ON
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DTREKKER_BUILD_TESTS=ON
 cmake --build build
 
 # Test suite (SPEC 9). Once CTest is wired up (M2), a failing test stops the
@@ -20,12 +20,12 @@ if [ -f build/CTestTestfile.cmake ]; then
 fi
 
 mkdir -p dist
-cp -f build/stemdeck.exe dist/stemdeck.exe
+cp -f build/trekker-ng.exe dist/trekker-ng.exe
 
 echo
-echo "build OK -> dist/stemdeck.exe"
+echo "build OK -> dist/trekker-ng.exe"
 echo "DLL dependencies (should only be Windows system DLLs):"
-objdump -p dist/stemdeck.exe | grep "DLL Name" || true
+objdump -p dist/trekker-ng.exe | grep "DLL Name" || true
 
 # ---------------------------------------------------------------- release ---
 if [ "${1:-}" = "release" ]; then
@@ -34,13 +34,14 @@ if [ "${1:-}" = "release" ]; then
     echo "error: VERSION file contains unexpected characters: '$VERSION'" >&2
     exit 1
   fi
-  NAME="stemdeck-${VERSION}-win64"
+  NAME="trekker-ng-${VERSION}-win64"
   STAGE="dist/${NAME}"
   ZIP="dist/${NAME}.zip"
 
   rm -rf "$STAGE"
   mkdir -p "$STAGE/docs"
-  cp -f dist/stemdeck.exe "$STAGE/"
+  cp -f dist/trekker-ng.exe "$STAGE/"
+  cp -f README.md "$STAGE/"
   cp -f docs/FORMAT.md docs/USAGE.md "$STAGE/docs/"
   rm -f "$ZIP"
 

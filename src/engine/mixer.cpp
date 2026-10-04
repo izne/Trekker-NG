@@ -1,6 +1,6 @@
 #include "mixer.h"
 
-namespace sde {
+namespace tng {
 
 void Mixer::process(float* out, uint32_t frameCount) noexcept {
     const float gain = masterGain_.load(std::memory_order_relaxed);
@@ -23,4 +23,4 @@ float Mixer::masterGain() const noexcept {
     return masterGain_.load(std::memory_order_relaxed);
 }
 
-} // namespace sde
+} // namespace tng

@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-namespace sde {
+namespace tng {
 
 float interpLinear(float a, float b, float t) {
     return a + (b - a) * t;
@@ -42,4 +42,4 @@ float readFrame(const float* data,
     return interpHermite(at(i1 - 1), at(i1), at(i1 + 1), at(i1 + 2), t);
 }
 
-} // namespace sde
+} // namespace tng

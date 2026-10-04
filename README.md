@@ -1,6 +1,6 @@
-# StemDeck
+# Trekker-NG
 
-StemDeck is a stem-based DJ player: it plays a track as four separate stems
+Trekker-NG is a stem-based DJ player: it plays a track as four separate stems
 (drums, bass, melody, vocals) through one sample-locked playhead, with
 vinyl-style pitch control, stem muting, and click-free transport - like the
 stem features of Traktor / djay, but for your own exported stems.
@@ -45,7 +45,7 @@ The project is governed by [`SPEC.md`](SPEC.md).
 ### Run the prebuilt binary
 
 ```
-dist\stemdeck.exe examples\magnat.zip
+dist\trekker-ng.exe examples\magnat.zip
 ```
 
 (`examples/magnat.zip` is a 4-stem example track: `drums/bass/melody/vocals`
@@ -64,16 +64,64 @@ Then, inside the project directory (also MINGW64 shell):
 
 ```
 ./build.sh          # configure + build + run tests + copy to dist/
-./build.sh release  # the same, plus dist/stemdeck-<version>-win64.zip
+./build.sh release  # the same, plus dist/trekker-ng-<version>-win64.zip
 ```
 
-The runnable result is always `dist\stemdeck.exe`. Failing tests block the
+The runnable result is always `dist\trekker-ng.exe`. Failing tests block the
 build, so a `dist/` build is known-good.
+
+## Running the example track
+
+The repository ships `examples/magnat.zip` - a complete 4-stem demo track
+(**Magnat - izne**, 128 BPM, 153.8 s, 44.1 kHz FLAC stems: Drums, Bass,
+Melody, Vocals), zipped with its `meta.json`:
+
+```
+dist\trekker-ng.exe examples\magnat.zip
+```
+
+Startup prints what it loaded, then the key map (playback starts **paused** -
+press `Space`):
+
+```
+track: Magnat - izne | 128.0 BPM | 44100 Hz | 153.8s
+  stem 1: Drums        ok
+  stem 2: Bass         ok
+  stem 3: Melody       ok
+  stem 4: Vocals       ok
+
+loaded: Magnat - izne | 44100 Hz | 4 stems
+keys: Space play/pause | 1-4 stem toggle (Shift=solo) | A all on
+      =+] pitch up | -_[ pitch down (Shift = 0.01%) | 0 reset | I interp | Q quit
+```
+
+While playing, a status line refreshes at the bottom:
+
+```
+[PLAY] Magnat | +0.00% (128.0 BPM) |  12.35/153.8s | 1:on 2:on 3:on 4:on
+```
+
+It shows play state, pitch, effective BPM, position and the 4 stem states.
+
+Things to try:
+
+1. `Space` - start; the 5 ms fade-in means no click at onset.
+2. `1` `2` `3` `4` - drop each stem out and back (Drums, Bass, Melody,
+   Vocals); every toggle is ramped, never a pop.
+3. `=` / `]` (or `-` / `[`) - pitch the whole track up/down together like a
+   record, up to ±10 %. Hold `Shift` for 0.01 % micro-steps, `0` resets.
+4. `Space` again to pause and resume - still click-free - and `Q` to quit.
+
+No soundcard handy? Render the same track offline instead:
+
+```
+dist\trekker-ng.exe examples\magnat.zip --render out.wav --rate 1.10 --seconds 6
+```
 
 ## Command line
 
 ```
-stemdeck <track.zip | track-folder> [options]
+trekker-ng <track.zip | track-folder> [options]
 
   --render <out.wav>  render offline to a WAV instead of playing (no soundcard)
   --rate <x>          playback rate for --render (e.g. 1.10 = +10%)
@@ -85,7 +133,7 @@ stemdeck <track.zip | track-folder> [options]
 Example - render 6 seconds of the example track at -7 %, only drums and bass:
 
 ```
-dist\stemdeck.exe examples\magnat.zip --render out.wav --rate 0.93 --seconds 6 --stems 1100
+dist\trekker-ng.exe examples\magnat.zip --render out.wav --rate 0.93 --seconds 6 --stems 1100
 ```
 
 ## Keyboard control (live mode)
@@ -140,7 +188,7 @@ simply silent). Full details: [`docs/FORMAT.md`](docs/FORMAT.md).
 
 ```
 src/
-  engine/            no UI dependencies; builds as static libstemdeck_engine
+  engine/            no UI dependencies; builds as static libtrekker_engine
     deck.{h,cpp}             4 stems, one playhead, smoothing + declick
     interpolate.{h,cpp}      pure Hermite / linear interpolator
     mixer.{h,cpp}            master gain + clamp (crossfader in M4/M5)

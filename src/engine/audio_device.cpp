@@ -8,7 +8,7 @@
 
 #include <cstring>
 
-namespace sde {
+namespace tng {
 
 struct AudioDevice::Impl {
     ma_device device{};
@@ -88,4 +88,4 @@ void AudioDevice::shutdown() {
     }
 }
 
-} // namespace sde
+} // namespace tng

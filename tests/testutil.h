@@ -34,14 +34,14 @@ constexpr double kPi = 3.14159265358979323846;
 
 // DeckData with one sine stem per entry in `freqs` (freq <= 0 => silent stem).
 // Stems beyond freqs.size() stay empty (SPEC §5: missing stems are silent).
-inline std::unique_ptr<sde::DeckData> makeSineTrack(uint32_t fs, double seconds,
+inline std::unique_ptr<tng::DeckData> makeSineTrack(uint32_t fs, double seconds,
                                                     const std::vector<double>& freqs,
                                                     double amp = 0.5) {
-    auto d = std::make_unique<sde::DeckData>();
+    auto d = std::make_unique<tng::DeckData>();
     d->sampleRate = fs;
     d->frames = static_cast<int64_t>(seconds * fs);
     for (size_t s = 0; s < freqs.size() && s < 4; ++s) {
-        sde::Stem& st = d->stems[s];
+        tng::Stem& st = d->stems[s];
         st.name = "sine" + std::to_string(s + 1);
         st.frames = d->frames;
         st.data.resize(static_cast<size_t>(d->frames) * 2);
@@ -58,14 +58,14 @@ inline std::unique_ptr<sde::DeckData> makeSineTrack(uint32_t fs, double seconds,
 
 // `stemCount` stems with identical impulse (click) trains, one every
 // `periodFrames` - the SPEC §9.2 stem-lock probe.
-inline std::unique_ptr<sde::DeckData> makeClickTrack(uint32_t fs, double seconds,
+inline std::unique_ptr<tng::DeckData> makeClickTrack(uint32_t fs, double seconds,
                                                      int64_t periodFrames,
                                                      int stemCount = 2) {
-    auto d = std::make_unique<sde::DeckData>();
+    auto d = std::make_unique<tng::DeckData>();
     d->sampleRate = fs;
     d->frames = static_cast<int64_t>(seconds * fs);
     for (int s = 0; s < stemCount && s < 4; ++s) {
-        sde::Stem& st = d->stems[s];
+        tng::Stem& st = d->stems[s];
         st.name = "click" + std::to_string(s + 1);
         st.frames = d->frames;
         st.data.assign(static_cast<size_t>(d->frames) * 2, 0.0f);
@@ -78,7 +78,7 @@ inline std::unique_ptr<sde::DeckData> makeClickTrack(uint32_t fs, double seconds
 }
 
 // Renders `n` frames (in chunks) and returns the interleaved stereo output.
-inline std::vector<float> renderFrames(sde::Deck& deck, int64_t n, uint32_t chunk = 256) {
+inline std::vector<float> renderFrames(tng::Deck& deck, int64_t n, uint32_t chunk = 256) {
     std::vector<float> out(static_cast<size_t>(n) * 2, 0.0f);
     int64_t done = 0;
     while (done < n) {

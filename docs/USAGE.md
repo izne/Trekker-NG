@@ -1,4 +1,4 @@
-# StemDeck usage
+# Trekker-NG usage
 
 A minimal DJ player for **producer-made stems**: each track is 4 stems sharing
 one playhead, mute-able live, with Technics-style varispeed pitch (tempo and
@@ -12,7 +12,7 @@ pitch change together, no time-stretching).
 ## Run
 
 ```
-stemdeck.exe <track.zip | track-folder>
+trekker-ng.exe <track.zip | track-folder>
 ```
 
 The track must be a folder or `.zip` containing `meta.json` + 1..4 stereo stem
@@ -49,7 +49,7 @@ Example - pitch-accuracy check (renders the 440 Hz test stem at +10%, expect
 ~484 Hz):
 
 ```
-stemdeck.exe temp\testtrack --render temp\out.wav --rate 1.10 --stems 1000
+trekker-ng.exe temp\testtrack --render temp\out.wav --rate 1.10 --stems 1000
 python tools\make_test_track.py        # generate temp\testtrack first
 ```
 
@@ -58,6 +58,6 @@ python tools\make_test_track.py        # generate temp\testtrack first
 MSYS2 MINGW64 shell, from the repository root:
 
 ```
-./build.sh            # configure + build + tests -> dist/stemdeck.exe
-./build.sh release    # additionally pack dist/stemdeck-<VERSION>-win64.zip
+./build.sh            # configure + build + tests -> dist/trekker-ng.exe
+./build.sh release    # additionally pack dist/trekker-ng-<VERSION>-win64.zip
 ```

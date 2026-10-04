@@ -1,6 +1,6 @@
-# StemDeck track format (v1)
+# Trekker-NG track format (v1)
 
-A StemDeck track is **either a folder or a `.zip` archive** with the same content:
+A Trekker-NG track is **either a folder or a `.zip` archive** with the same content:
 
 ```
 mytrack/

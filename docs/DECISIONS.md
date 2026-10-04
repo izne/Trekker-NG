@@ -60,3 +60,15 @@ Ambiguous requirements (per SPEC ยง10.3) resolved here instead of stopping to as
 - **The ง9.6 allocation counter replaces only `operator new`:** counting needs `new`,
   and libstdc++'s default `operator delete` (free) pairs with our malloc anyway;
   replacing `delete` too only earns a -Wmismatched-new-delete false positive.
+
+## 2026-10-04 - Rename to Trekker-NG
+
+- **Working name changed from StemDeck to Trekker-NG** (user decision; matches
+  the GitHub repo `izne/Trekker-NG`). Renamed everywhere user-visible: exe and
+  release zips (`trekker-ng.exe`, `trekker-ng-<version>-win64.zip`), CMake
+  project/targets (`trekker-ng`, `trekker_engine`, `trekker_tests`, option
+  `TREKKER_BUILD_TESTS`), banner/usage text, all docs, and the engine namespace
+  `sde::` -> `tng::`. Vendored `third_party/` names were left alone.
+- **Release zips now include `README.md`** at the zip root alongside `docs/`
+  (FORMAT.md, USAGE.md), so a standalone download documents itself - including
+  the new "Running the example track" chapter for `examples/magnat.zip`.
