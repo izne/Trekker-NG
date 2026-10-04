@@ -177,7 +177,7 @@ int runRender(const Options& opt, tng::Deck& deck, const tng::DeckData& data) {
     uint64_t written = 0;
     while (written < totalFrames && deck.playing()) {
         deck.render(buf.data(), kPeriodFrames);
-        mixer.process(buf.data(), kPeriodFrames);
+        mixer.process(buf.data(), nullptr, buf.data(), kPeriodFrames);
         const ma_uint64 want = std::min<uint64_t>(kPeriodFrames, totalFrames - written);
         // ma_encoder does not convert formats - hand it exactly what the
         // config promised (s16), clamped like the live output stage does.
@@ -208,7 +208,7 @@ int runLive(const Options& opt, tng::Deck& deck, const tng::DeckData& data) {
     tng::Mixer mixer;
     tng::AudioDevice device;
     std::string err;
-    if (!device.init(&deck, &mixer, data.sampleRate, kPeriodFrames, &err)) {
+    if (!device.init(&deck, nullptr, &mixer, data.sampleRate, kPeriodFrames, &err)) {
         std::fprintf(stderr, "error: audio device init failed: %s\n", err.c_str());
         return 1;
     }

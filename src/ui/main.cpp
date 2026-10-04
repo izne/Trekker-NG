@@ -122,7 +122,7 @@ int main(int argc, char** argv) {
 
     auto startDevice = [&](uint32_t rate) -> bool {
         std::string err;
-        if (!device.init(&deck, &mixer, rate, kPeriodFrames, &err)) {
+        if (!device.init(&deck, nullptr, &mixer, rate, kPeriodFrames, &err)) {
             setStatus("audio init failed: " + err, true);
             return false;
         }

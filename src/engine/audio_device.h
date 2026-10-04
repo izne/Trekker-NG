@@ -23,9 +23,11 @@ public:
     AudioDevice(const AudioDevice&) = delete;
     AudioDevice& operator=(const AudioDevice&) = delete;
 
-    // deck and mixer must outlive the device. sampleRate comes from the
-    // loaded track; periodFrames is the callback size (256, SPEC §4.7).
-    bool init(Deck* deck, Mixer* mixer, uint32_t sampleRate, uint32_t periodFrames,
+    // deckA/deckB and mixer must outlive the device. deckB may be null
+    // (single-deck console / M3 UI: mixer bypasses the crossfader).
+    // sampleRate comes from the loaded track; periodFrames is the callback
+    // size (256, SPEC §4.7).
+    bool init(Deck* deckA, Deck* deckB, Mixer* mixer, uint32_t sampleRate, uint32_t periodFrames,
               std::string* error);
     bool start(std::string* error);
     void stop();

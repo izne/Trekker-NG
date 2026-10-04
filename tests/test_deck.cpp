@@ -275,7 +275,7 @@ TEST_CASE("mixer: master gain and hard clamp (SPEC 4.6)") {
     CHECK(mixer.masterGain() == doctest::Approx(0.7f));
 
     std::vector<float> buf = {1.0f, -1.0f, 2.0f, -2.0f};
-    mixer.process(buf.data(), 2);
+    mixer.process(buf.data(), nullptr, buf.data(), 2);
     CHECK(buf[0] == doctest::Approx(0.7f));
     CHECK(buf[1] == doctest::Approx(-0.7f));
     CHECK(buf[2] == 1.0f);  // clamped, no wrap
@@ -283,6 +283,6 @@ TEST_CASE("mixer: master gain and hard clamp (SPEC 4.6)") {
 
     mixer.setMasterGain(1.0f);
     buf = {1.5f, 0.0f, 0.0f, 0.0f};
-    mixer.process(buf.data(), 1);
+    mixer.process(buf.data(), nullptr, buf.data(), 1);
     CHECK(buf[0] == 1.0f);
 }
