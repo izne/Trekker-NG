@@ -6,6 +6,7 @@
 
 #include "audio_device.h"
 #include "deck.h"
+#include "mixer.h"
 #include "track_loader.h"
 
 #include "miniaudio.h" // ma_encoder for --render (declarations only)
@@ -59,7 +60,7 @@ BOOL WINAPI consoleHandler(DWORD type) {
 
 void printUsage() {
     std::printf(
-        "StemDeck M1 (pitch PoC)\n"
+        "StemDeck M2 (console)\n"
         "\n"
         "usage:\n"
         "  stemdeck <track.zip | track-folder> [options]\n"
@@ -156,6 +157,7 @@ std::string formatPitch(double rate) {
 }
 
 int runRender(const Options& opt, sde::Deck& deck, const sde::DeckData& data) {
+    sde::Mixer mixer; // same master gain + clamp as the live path
     deck.setRate(opt.rate);
     deck.setPlaying(true);
 
@@ -175,6 +177,7 @@ int runRender(const Options& opt, sde::Deck& deck, const sde::DeckData& data) {
     uint64_t written = 0;
     while (written < totalFrames && deck.playing()) {
         deck.render(buf.data(), kPeriodFrames);
+        mixer.process(buf.data(), kPeriodFrames);
         const ma_uint64 want = std::min<uint64_t>(kPeriodFrames, totalFrames - written);
         // ma_encoder does not convert formats - hand it exactly what the
         // config promised (s16), clamped like the live output stage does.
@@ -202,9 +205,10 @@ int runRender(const Options& opt, sde::Deck& deck, const sde::DeckData& data) {
 }
 
 int runLive(const Options& opt, sde::Deck& deck, const sde::DeckData& data) {
+    sde::Mixer mixer;
     sde::AudioDevice device;
     std::string err;
-    if (!device.init(&deck, data.sampleRate, kPeriodFrames, &err)) {
+    if (!device.init(&deck, &mixer, data.sampleRate, kPeriodFrames, &err)) {
         std::fprintf(stderr, "error: audio device init failed: %s\n", err.c_str());
         return 1;
     }

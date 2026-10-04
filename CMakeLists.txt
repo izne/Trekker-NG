@@ -14,6 +14,7 @@ endif()
 add_library(stemdeck_engine STATIC
   src/engine/interpolate.cpp
   src/engine/deck.cpp
+  src/engine/mixer.cpp
   src/engine/track_loader.cpp
   src/engine/audio_device.cpp
   third_party/miniz/miniz.c
@@ -32,6 +33,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   set_source_files_properties(
     src/engine/interpolate.cpp
     src/engine/deck.cpp
+    src/engine/mixer.cpp
     src/engine/track_loader.cpp
     PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra"
   )
@@ -61,3 +63,23 @@ endif()
 
 # --- tests (SPEC §9) - added in M2; option exists from M1 so build.sh is stable ---
 option(STEMDECK_BUILD_TESTS "Build the engine test suite" ON)
+
+if(STEMDECK_BUILD_TESTS)
+  enable_testing()
+  add_executable(stemdeck_tests
+    tests/test_main.cpp
+    tests/test_interpolate.cpp
+    tests/test_deck.cpp
+  )
+  target_include_directories(stemdeck_tests PRIVATE third_party tests)
+  target_link_libraries(stemdeck_tests PRIVATE stemdeck_engine)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set_source_files_properties(
+      tests/test_main.cpp
+      tests/test_interpolate.cpp
+      tests/test_deck.cpp
+      PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra"
+    )
+  endif()
+  add_test(NAME engine COMMAND stemdeck_tests)
+endif()

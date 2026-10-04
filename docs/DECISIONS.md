@@ -30,3 +30,33 @@ Ambiguous requirements (per SPEC ยง10.3) resolved here instead of stopping to as
 - **Rate smoothing and declick ramps are intentionally absent** โ€” they are M2 scope
   (SPEC ยง8). M1 steps pitch in โฅ0.01 % increments, which is inaudible as zipper noise
   at keyboard repeat rates.
+
+## 2026-10-04 - M2 (declick, mixer, tests)
+
+- **`mixer.{h,cpp}` extracted now (supersedes the M1 deferral to M4):** SPEC ง7 puts it
+  in `src/engine/`, and M2 is the "engine library cleanup" milestone. `Mixer::process()`
+  does master gain (atomic, 0.7) + hard clamp only; `AudioDevice::init()` now takes the
+  mixer, and `--render` runs the same mixer after `Deck::render()` - so offline renders
+  and live output are gain-identical (M1's render path was unity-gain and could clip).
+- **Rate smoothing is a per-sample one-pole, t = 15 ms** (SPEC ง4.3): the UI writes a
+  target, `render()` glides `rateSmoothed_` toward it. Per-block stepping would still
+  zipper on big fader moves.
+- **Declick constants:** transport fade 5 ms (`kRampSeconds`), seek crossfade 2 ms
+  (`kDeclickSeconds`). Seek while audible crossfades old->new position; seek while
+  silent moves instantly. Pause ramps `outputGain_` to 0 instead of cutting.
+- **Tests synthesize everything in memory** - no Python, no files, no soundcard at test
+  time (the `temp/`-based tooling stays for manual acceptance). The stem-lock test
+  renders 10 simulated minutes at 8 kHz in 8-frame blocks and matches detected click
+  peaks against playhead-crossing windows.
+- **Thresholds were derived, not guessed:** sample-step checks allow the waveform's own
+  derivative (440 Hz sine max step ~0.031) plus ramp contribution => 0.05, seek => 0.08
+  (crossfade blend adds ~0.012); the click-peak threshold 0.9 comes from the worst-case
+  Hermite phase at the ฑ10 % rate extremes (~0.486/stem summed).
+- **The stem-lock test compares against the final playhead position**, not the click
+  count: the random rate schedule is a random walk, so the track end is approached from
+  slightly above or below ~10 clicks' worth of frames either way.
+- **doctest v2.4.12 vendored as `third_party/doctest.h`** (SPEC ง3 allows doctest or
+  Catch2); one ctest entry `engine` runs the whole suite; failing tests block `dist/`.
+- **The ง9.6 allocation counter replaces only `operator new`:** counting needs `new`,
+  and libstdc++'s default `operator delete` (free) pairs with our malloc anyway;
+  replacing `delete` too only earns a -Wmismatched-new-delete false positive.
