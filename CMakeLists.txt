@@ -56,5 +56,8 @@ endif()
 
 if(MINGW)
   # Fully static exe so dist/ is one self-contained file (SPEC §10.2).
-  target_link_options(stemdeck PRIVATE -static)
+  target_link_options(stemdeck PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
+
+# --- tests (SPEC §9) - added in M2; option exists from M1 so build.sh is stable ---
+option(STEMDECK_BUILD_TESTS "Build the engine test suite" ON)
