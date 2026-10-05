@@ -13,9 +13,12 @@ crossfader with line/master gains and a two-deck audio path in the engine,
 plus frame-accurate loops and cue points (parse + persistence). M4c adds the
 two-deck **Mix** mode to the UI: two decks side by side with a mixer column,
 per-deck VU meters, a CUE button, and the session-only `M` mode toggle (the
-app always boots in Single mode). M4display renders the time, beat, BPM and
-pitch readouts as cyan 7-segment VFD displays (embedded DSEG7 font). The
-project is governed by [`SPEC.md`](SPEC.md).
+app always boots in Single mode). M4display renders the time, bar.beat, BPM
+and pitch readouts as cyan 7-segment VFD displays (embedded DSEG7 font).
+M4d completes the cue/loop controls: full CUE set/preview/return behavior,
+8 hot cues, manual and quick loops with buttons and keys, a ±10/±16 pitch
+range toggle and a Shift+click nudge. The project is governed by
+[`SPEC.md`](SPEC.md).
 
 ![Trekker-NG mix mode - two decks with waveforms, mixer column and per-deck VU meters](docs/ui-m4c.png)
 
@@ -45,10 +48,23 @@ project is governed by [`SPEC.md`](SPEC.md).
 - **Cue points & loops (engine)** - cues load from `meta.json` and persist
   edits (folder tracks rewrite `meta.json`, zip tracks get a `.cues.json`
   sidecar next to the archive); loops wrap on the exact crossing sample with
-  the same 2 ms declick as a seek. Transport controls for both arrive in M4d.
-- **CUE button (M4c)** - next to Play in each deck view; jumps that deck back
-  to the start without touching the play state (the full set/hold/return
-  main-cue behavior of SPEC §4.5 lands in M4d).
+  the same 2 ms declick as a seek. The UI drives both since M4d.
+- **CUE button - full main-cue behavior (M4d)** - press while playing to jump
+  to the main cue and pause; press while stopped to set the cue at the current
+  position and hold to preview; release to return to the cue and stop. The
+  main cue is session-only and defaults to the track start.
+- **Hot cues (M4d)** - 8 slots per deck: click an empty slot to store the
+  playhead, click a filled slot to jump (declicked), right-click to clear -
+  or `Shift+1`..`Shift+8` on the active deck. Every edit saves immediately
+  through the existing cue persistence.
+- **Loops with UI (M4d)** - `In`/`Out`/`On`/`Exit` buttons (lit when set) plus
+  `I`/`O`/`L`/`Shift+L` keys, and quick loops of 1/2/4/8/16 beats from the
+  playhead via buttons or `Alt+1`..`Alt+5` (needs a BPM; out clamps at the
+  track end). Activation guards reject incomplete or inverted point pairs.
+- **Pitch range & nudge (M4d)** - a button under the readout toggles the
+  fader range between ±10 % and ±16 % (the SPEC §4.3 ±8 % step is skipped in
+  v1); `Shift`+click on the fader is a jog-style nudge that bends pitch to
+  the clicked position while held and snaps back on release.
 - **Mix mode (M4c)** - `M` toggles Single / Mix for the session: Mix shows
   deck A and deck B side by side with a mixer column (A/B line faders,
   crossfader, master), and the deck under the mouse is the *active* deck the
@@ -66,9 +82,9 @@ project is governed by [`SPEC.md`](SPEC.md).
 - **Per-deck VU meter** - a peak-hold bar per deck fed by the deck's own
   output (before the line fader/crossfader), green/yellow/red as it approaches
   and passes 0.7/0.9.
-- **VFD readouts (M4display)** - time, beat, effective BPM and pitch render
-  in a 7-segment font (DSEG7) on a dark inset, cyan like a vacuum-fluorescent
-  display; everything else keeps the regular UI font.
+- **VFD readouts (M4display)** - time, the bar.beat counter, effective BPM
+  and pitch render in a 7-segment font (DSEG7) on a dark inset, cyan like a
+  vacuum-fluorescent display; everything else keeps the regular UI font.
 - **Self-contained download** - `trekker-ng.exe` + `SDL2.dll` only (everything
   else, including the C++ runtime, is statically linked).
 
@@ -182,16 +198,23 @@ dist\trekker-console.exe examples\magnat.zip --render out.wav --rate 0.93 --seco
 | `=` `+` `]` | pitch **up** 0.10 % (hold `Shift`: 0.01 %) |
 | `-` `_` `[` | pitch **down** 0.10 % (hold `Shift`: 0.01 %) |
 | `0` | reset pitch to 0.00 % |
+| `Shift+1` … `Shift+8` | hot cue on the active deck (jump, or store at the playhead if empty) |
+| `I` / `O` | set loop in / loop out at the playhead (active deck) |
+| `L` | toggle the loop; `Shift+L` exits and clears it |
+| `Alt+1` … `Alt+5` | quick loop of 1 / 2 / 4 / 8 / 16 beats from the playhead |
 | `M` | toggle Single / Mix mode (session only; always boots Single) |
 | `Q` / `Esc` | quit |
 
 Click any waveform lane to seek; drag & drop a track folder or `.zip` anywhere
 to load. The vertical fader works like real DJ gear: **up = slower, down =
-faster** (the keyboard steps move the fader too). Load accepts a pasted path.
+faster** (the keyboard steps move the fader too), the button under the readout
+toggles ±10/±16 %, and `Shift`+click on the fader nudges (bends to the
+clicked position, release snaps back). Load accepts a pasted path.
 
 In Mix mode the transport and pitch keys follow the **active deck** (the panel
-under the mouse), `1`-`4` toggle deck A's stems, `7`-`0` toggle deck B's, and
-drop/Load target the deck under the pointer; the crossfader starts centered.
+under the mouse), as do the hot-cue and loop keys, `1`-`4` toggle deck A's
+stems, `7`-`0` toggle deck B's, and drop/Load target the deck under the
+pointer; the crossfader starts centered.
 
 ## Keyboard control (console live mode)
 
@@ -292,7 +315,8 @@ synthesized in memory:
    (plus transport pause/resume, loops and mixer checks)
 7. **Loops & cues** - loop wraps land on the crossing sample, stay click-free
    and reject bad ranges; cue arrays parse/round-trip with unknown
-   `meta.json` fields preserved
+   `meta.json` fields preserved; hot-cue slots, one-sided loop points and
+   beat-grid quick loops guard bad input (M4d)
 8. **VU peak** - `Deck::blockPeak()` tracks the rendered output's peak and
    drops to 0 once the deck settles
 

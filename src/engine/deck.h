@@ -108,11 +108,33 @@ public:
     // the loaded track and wraps sample-accurately with the seek declick.
     // Points are per-track: setTrack()/publishTrack() clear them.
     bool setLoop(int64_t inFrame, int64_t outFrame) noexcept;
+    // M4d: set one side at a time from the UI. Each rejects a frame < 0 or a
+    // value that would leave in >= out against the stored other side; on
+    // failure the previous points stay untouched.
+    bool setLoopIn(int64_t frame) noexcept;
+    bool setLoopOut(int64_t frame) noexcept;
+    // M4d: quick loop of `beats` beats from the beat grid (SPEC §4.5): in =
+    // current position, out = in + beats * 60/bpm seconds in track time
+    // (unpitched), clamped to the track end; the loop is activated. False
+    // without a track, without bpm, or when the range degenerates.
+    bool setQuickLoop(int beats) noexcept;
     void clearLoop() noexcept; // drops the points and deactivates
-    void setLoopActive(bool active) noexcept;
+    // Activating rejects an incomplete/invalid point pair (returns false);
+    // deactivating always succeeds.
+    bool setLoopActive(bool active) noexcept;
     bool loopActive() const noexcept;
     int64_t loopIn() const noexcept;
     int64_t loopOut() const noexcept;
+
+    // --- hot cues (SPEC §4.5, UI thread) ---
+    // Cues live inside DeckData and swap with the track; the audio thread
+    // never reads them (triggers go through requestSeek()). setHotCue fills
+    // `slot`: at the end it appends with the auto name "cue N", past the end
+    // it replaces the position and keeps the name. clearHotCue erases and
+    // shifts later cues down. Rejects: no track, slot < 0, slot > size, and
+    // appends beyond the 8 slots the UI offers.
+    bool setHotCue(int slot, double positionMs) noexcept;
+    bool clearHotCue(int slot) noexcept;
 
 private:
     void zero(float* out, uint32_t count) const noexcept;

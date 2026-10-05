@@ -151,14 +151,50 @@ bool Deck::setLoop(int64_t inFrame, int64_t outFrame) noexcept {
     return true;
 }
 
+bool Deck::setLoopIn(int64_t frame) noexcept {
+    if (frame < 0) return false;
+    const int64_t out = loopOut_.load(std::memory_order_relaxed);
+    if (out >= 0 && frame >= out) return false;
+    loopIn_.store(frame, std::memory_order_relaxed);
+    return true;
+}
+
+bool Deck::setLoopOut(int64_t frame) noexcept {
+    if (frame < 0) return false;
+    const int64_t in = loopIn_.load(std::memory_order_relaxed);
+    if (in >= 0 && frame <= in) return false;
+    loopOut_.store(frame, std::memory_order_relaxed);
+    return true;
+}
+
+bool Deck::setQuickLoop(int beats) noexcept {
+    if (beats <= 0 || !data_ || data_->bpm <= 0.0f) return false;
+    const double fs = static_cast<double>(std::max(data_->sampleRate, 1u));
+    int64_t in = static_cast<int64_t>(positionFrames());
+    if (in < 0) in = 0;
+    int64_t beat = static_cast<int64_t>(60.0 / static_cast<double>(data_->bpm) * fs + 0.5);
+    if (beat < 1) beat = 1;
+    int64_t out = in + beat * static_cast<int64_t>(beats);
+    if (out > data_->frames) out = data_->frames; // clamp at the track end
+    if (!setLoop(in, out)) return false;
+    loopActive_.store(true, std::memory_order_relaxed);
+    return true;
+}
+
 void Deck::clearLoop() noexcept {
     loopIn_.store(-1, std::memory_order_relaxed);
     loopOut_.store(-1, std::memory_order_relaxed);
     loopActive_.store(false, std::memory_order_relaxed);
 }
 
-void Deck::setLoopActive(bool active) noexcept {
+bool Deck::setLoopActive(bool active) noexcept {
+    if (active) {
+        const int64_t in = loopIn_.load(std::memory_order_relaxed);
+        const int64_t out = loopOut_.load(std::memory_order_relaxed);
+        if (in < 0 || out <= in) return false;
+    }
     loopActive_.store(active, std::memory_order_relaxed);
+    return true;
 }
 
 bool Deck::loopActive() const noexcept {
@@ -171,6 +207,29 @@ int64_t Deck::loopIn() const noexcept {
 
 int64_t Deck::loopOut() const noexcept {
     return loopOut_.load(std::memory_order_relaxed);
+}
+
+bool Deck::setHotCue(int slot, double positionMs) noexcept {
+    if (!data_ || slot < 0) return false;
+    std::vector<Cue>& cues = data_->cues;
+    if (positionMs < 0.0) positionMs = 0.0;
+    if (slot == static_cast<int>(cues.size())) {
+        if (cues.size() >= 8) return false; // the UI offers 8 slots (SPEC §4.5)
+        Cue c;
+        c.name = "cue " + std::to_string(slot + 1);
+        c.positionMs = positionMs;
+        cues.push_back(std::move(c));
+        return true;
+    }
+    if (slot > static_cast<int>(cues.size())) return false;
+    cues[static_cast<size_t>(slot)].positionMs = positionMs;
+    return true;
+}
+
+bool Deck::clearHotCue(int slot) noexcept {
+    if (!data_ || slot < 0 || slot >= static_cast<int>(data_->cues.size())) return false;
+    data_->cues.erase(data_->cues.begin() + slot);
+    return true;
 }
 
 void Deck::render(float* out, uint32_t frameCount) noexcept {

@@ -458,3 +458,120 @@ TEST_CASE("VU: blockPeak tracks the rendered output, 0 when settled") {
     renderFrames(deck, 256);
     CHECK(deck.blockPeak() == 0.0f); // settled paused: the block breaks at i=0
 }
+
+TEST_CASE("loop: one-sided setters and the activation guard (M4d)") {
+    tng::Deck deck;
+
+    CHECK(deck.setLoopIn(100));
+    CHECK(deck.loopIn() == 100);
+    CHECK(deck.loopOut() == -1);
+    CHECK_FALSE(deck.setLoopActive(true)); // incomplete pair
+    CHECK_FALSE(deck.setLoopIn(-5));       // negative frame
+
+    CHECK(deck.setLoopOut(200));
+    CHECK(deck.loopOut() == 200);
+    CHECK(deck.setLoopActive(true));
+    CHECK(deck.loopActive());
+
+    CHECK_FALSE(deck.setLoopOut(50)); // <= in: previous out kept
+    CHECK(deck.loopOut() == 200);
+    CHECK_FALSE(deck.setLoopIn(300)); // >= out: previous in kept
+    CHECK(deck.loopIn() == 100);
+    CHECK_FALSE(deck.setLoopOut(-1));
+
+    CHECK(deck.setLoopActive(true)); // idempotent while the pair is valid
+    CHECK(deck.loopActive());
+    CHECK(deck.setLoopActive(false));
+    CHECK_FALSE(deck.loopActive());
+
+    deck.clearLoop();
+    CHECK(deck.loopIn() == -1);
+    CHECK(deck.loopOut() == -1);
+    CHECK_FALSE(deck.setLoopActive(true)); // cleared: pair incomplete again
+}
+
+TEST_CASE("quick loop: N beats from the playhead via the beat grid (M4d)") {
+    const uint32_t fs = 44100;
+    auto track = makeSineTrack(fs, 10.0, {440.0});
+    track->bpm = 120.0f; // 0.5 s = 22050 frames per beat
+    tng::Deck deck;
+    deck.setTrack(std::move(track));
+
+    CHECK_FALSE(deck.setQuickLoop(0));  // beats <= 0
+    CHECK_FALSE(deck.setQuickLoop(-2)); // beats <= 0
+
+    renderFrames(deck, 8); // first render adopts the track (resets playhead)
+    deck.requestSeek(20000);
+    renderFrames(deck, 8); // paused: the jump is consumed for display
+    REQUIRE(deck.setQuickLoop(2));
+    CHECK(deck.loopIn() == 20000);
+    CHECK(deck.loopOut() == 20000 + 2 * 22050);
+    CHECK(deck.loopActive());
+
+    // Near the end the out point clamps to the track, never past it.
+    deck.requestSeek(440500);
+    renderFrames(deck, 8);
+    REQUIRE(deck.setQuickLoop(16));
+    CHECK(deck.loopIn() == 440500);
+    CHECK(deck.loopOut() == 441000); // 10 s track, clamped at frames
+
+    // Without a beat grid there is nothing to size the loop against.
+    tng::Deck noBpm;
+    noBpm.setTrack(makeSineTrack(fs, 2.0, {440.0}));
+    CHECK_FALSE(noBpm.setQuickLoop(4));
+    tng::Deck bare; // no track at all
+    CHECK_FALSE(bare.setQuickLoop(4));
+}
+
+TEST_CASE("hot cues: set/replace/clear slots (M4d, SPEC 4.5)") {
+    const uint32_t fs = 8000;
+    tng::Deck deck;
+    CHECK_FALSE(deck.setHotCue(0, 100.0)); // no track
+    CHECK_FALSE(deck.clearHotCue(0));      // no track
+
+    deck.setTrack(makeSineTrack(fs, 2.0, {440.0}));
+    const tng::DeckData* d = deck.track();
+    REQUIRE(d != nullptr);
+    REQUIRE(d->cues.empty());
+
+    // Append at the end with the auto name.
+    REQUIRE(deck.setHotCue(0, 1500.0));
+    REQUIRE(d->cues.size() == 1);
+    CHECK(d->cues[0].name == "cue 1");
+    CHECK(d->cues[0].positionMs == 1500.0);
+    REQUIRE(deck.setHotCue(1, 200.0));
+    CHECK(d->cues[1].name == "cue 2");
+
+    // Replace keeps the name and the vector length.
+    REQUIRE(deck.setHotCue(0, 900.0));
+    REQUIRE(d->cues.size() == 2);
+    CHECK(d->cues[0].name == "cue 1");
+    CHECK(d->cues[0].positionMs == 900.0);
+
+    // Sparse and negative slots are rejected.
+    CHECK_FALSE(deck.setHotCue(5, 0.0));
+    CHECK_FALSE(deck.setHotCue(-1, 0.0));
+
+    // Negative positions clamp to 0 (same rule as the meta.json parser).
+    REQUIRE(deck.setHotCue(2, -10.0));
+    CHECK(d->cues.size() == 3);
+    CHECK(d->cues[2].positionMs == 0.0);
+
+    // Clear erases and shifts later cues down.
+    REQUIRE(deck.clearHotCue(0));
+    REQUIRE(d->cues.size() == 2);
+    CHECK(d->cues[0].name == "cue 2");
+    CHECK_FALSE(deck.clearHotCue(9));
+    CHECK_FALSE(deck.clearHotCue(-1));
+    REQUIRE(d->cues.size() == 2);
+
+    // Fill to the 8 slots the UI offers; appends beyond that are rejected.
+    while (d->cues.size() < 8) {
+        REQUIRE(deck.setHotCue(static_cast<int>(d->cues.size()), 1.0));
+    }
+    CHECK(d->cues.size() == 8);
+    CHECK_FALSE(deck.setHotCue(8, 1.0));
+    CHECK_FALSE(deck.setHotCue(9, 1.0));
+    CHECK(deck.setHotCue(7, 42.0)); // replacing inside the cap still works
+    CHECK(d->cues[7].positionMs == 42.0);
+}

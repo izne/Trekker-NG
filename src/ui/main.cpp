@@ -43,7 +43,7 @@ namespace {
 constexpr uint32_t kPeriodFrames = 256; // SPEC §4.7
 constexpr int kDeckCount = 2;
 constexpr float kMixerWidth = 150.0f; // center column in Mix mode
-constexpr float kStatusReserve = 64.0f; // bottom lines under the deck children
+constexpr float kStatusReserve = 82.0f; // bottom lines under the deck children (2 hint lines)
 
 void showError(const char* what) {
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Trekker-NG", what, nullptr);
@@ -142,6 +142,9 @@ int main(int argc, char** argv) {
     std::string status = "drop a track folder or .zip, or paste a path";
     bool statusError = false;
     std::array<std::optional<std::future<tng::LoadResult>>, kDeckCount> loading;
+    // M4d: the path each deck is currently loading/loaded from - threaded to
+    // the deck view on success so hot-cue edits can saveCues() through it.
+    std::array<std::filesystem::path, kDeckCount> pendingPath;
 
     auto setStatus = [&](const std::string& s, bool err) {
         status = s;
@@ -151,9 +154,12 @@ int main(int argc, char** argv) {
     };
 
     // Pitch from the keyboard, same feel as the console: 0.10% steps,
-    // Shift = 0.01% fine, snapped to the 0.01% grid, clamped to +/-10%.
-    // Acts on the active deck (hover a panel to switch in Mix mode).
+    // Shift = 0.01% fine, snapped to the 0.01% grid, clamped to the active
+    // deck's range (M4d: 10/16 toggle). Acts on the active deck (hover a
+    // panel to switch in Mix mode) and backs off while a nudge owns the rate.
     auto pitchBy = [&](int dir) {
+        tui::DeckView& view = views[activeDeck];
+        if (view.nudging()) return; // the nudge restores its base on release
         tng::Deck& d = decks[activeDeck];
         const bool shift = (SDL_GetModState() & KMOD_SHIFT) != 0;
         const double step = shift ? 0.01 : 0.10;
@@ -161,8 +167,32 @@ int main(int argc, char** argv) {
                                  static_cast<double>(dir) * step) *
                                 100.0) /
                      100.0;
-        pct = std::max(-10.0, std::min(10.0, pct));
+        const double range = static_cast<double>(view.pitchRange());
+        pct = std::max(-range, std::min(range, pct));
         d.setRate(1.0 + pct / 100.0);
+    };
+
+    // M4d: jump the active deck to a hot cue (Shift+1..8 / cue buttons).
+    auto hotCueTrigger = [&](int di, int slot) {
+        const tng::DeckData* td = decks[di].track();
+        if (!td || slot < 0 || slot >= static_cast<int>(td->cues.size())) return;
+        const double fs = static_cast<double>(std::max(td->sampleRate, 1u));
+        int64_t frame =
+            static_cast<int64_t>(td->cues[static_cast<size_t>(slot)].positionMs * fs / 1000.0);
+        if (frame < 0) frame = 0;
+        if (frame >= td->frames) frame = td->frames - 1;
+        decks[di].requestSeek(frame);
+    };
+
+    // M4d: quick loop on the active deck (Alt+1..5).
+    auto quickLoop = [&](int beats) {
+        tng::Deck& d = decks[activeDeck];
+        const tng::DeckData* td = d.track();
+        if (!td || td->bpm <= 0.0f) {
+            setStatus("quick loop: track has no BPM in meta.json", true);
+            return;
+        }
+        if (!d.setQuickLoop(beats)) setStatus("quick loop: not possible here", true);
     };
 
     auto startDevice = [&](uint32_t rate) -> bool {
@@ -188,6 +218,7 @@ int main(int argc, char** argv) {
                       true);
             return;
         }
+        pendingPath[di] = path;
         loading[di] = std::async(std::launch::async, [path] { return tng::loadTrack(path); });
         setStatus(std::string("loading deck ") + deckName(di) + "...", false);
     };
@@ -222,6 +253,7 @@ int main(int argc, char** argv) {
 
         decks[di].publishTrack(std::move(res.data)); // hot swap (SPEC §4.7)
         views[di].onTrackChanged();
+        views[di].setTrackPath(pendingPath[di]); // M4d: hot-cue saves need it
         if (!deviceUp) startDevice(rate);
 
         const tng::DeckData* d = decks[di].track();
@@ -289,19 +321,31 @@ int main(int argc, char** argv) {
                         d.setPlaying(!d.playing());
                         break;
                     }
-                    // SPEC §6.155: 1-4 stems on deck A, 7-0 on deck B.
+                    // SPEC §6.155: 1-4 stems on deck A, 7-0 on deck B with
+                    // plain digits only. M4d adds, on the active deck:
+                    // Shift+1..8 trigger a hot cue, Alt+1..5 a quick loop.
                     // Shift+digit is a different character on some layouts
-                    // (German "!§$"): only the plain digits toggle stems.
+                    // (German "!§$"), so branches key off the modifier, not
+                    // the produced character. Alt/Ctrl+digit never toggles
+                    // stems (M4d: that used to leak through).
                     case SDLK_1: case SDLK_2: case SDLK_3: case SDLK_4:
-                        if (!(e.key.keysym.mod & KMOD_SHIFT)) {
-                            decks[0].toggleStem(e.key.keysym.sym - SDLK_1);
+                    case SDLK_5: case SDLK_6:
+                    case SDLK_7: case SDLK_8: case SDLK_9: {
+                        const SDL_Keycode sym = e.key.keysym.sym;
+                        const Uint16 mod = e.key.keysym.mod;
+                        if (mod & KMOD_SHIFT) {
+                            const int slot = static_cast<int>(sym - SDLK_1);
+                            if (slot <= 7) hotCueTrigger(activeDeck, slot);
+                        } else if (mod & (KMOD_ALT | KMOD_CTRL | KMOD_GUI)) {
+                            const int digit = static_cast<int>(sym - SDLK_1);
+                            if (digit >= 0 && digit <= 4) quickLoop(1 << digit); // 1,2,4,8,16
+                        } else if (sym <= SDLK_4) {
+                            decks[0].toggleStem(sym - SDLK_1);
+                        } else if (sym >= SDLK_7) {
+                            decks[1].toggleStem(sym - SDLK_7);
                         }
                         break;
-                    case SDLK_7: case SDLK_8: case SDLK_9:
-                        if (!(e.key.keysym.mod & KMOD_SHIFT)) {
-                            decks[1].toggleStem(e.key.keysym.sym - SDLK_7);
-                        }
-                        break;
+                    }
                     case SDLK_0:
                         // '0' is the pitch-reset key in Single mode (M3) and
                         // deck B's stem 4 in Mix mode (SPEC §6.155) - the
@@ -311,6 +355,29 @@ int main(int argc, char** argv) {
                             decks[1].toggleStem(3);
                         }
                         break;
+                    // M4d loop keys on the active deck: I/O set the points,
+                    // L toggles, Shift+L exits (clears) the loop.
+                    case SDLK_i:
+                        if (!(e.key.keysym.mod & (KMOD_SHIFT | KMOD_ALT | KMOD_CTRL))) {
+                            decks[activeDeck].setLoopIn(
+                                static_cast<int64_t>(decks[activeDeck].positionFrames()));
+                        }
+                        break;
+                    case SDLK_o:
+                        if (!(e.key.keysym.mod & (KMOD_SHIFT | KMOD_ALT | KMOD_CTRL))) {
+                            decks[activeDeck].setLoopOut(
+                                static_cast<int64_t>(decks[activeDeck].positionFrames()));
+                        }
+                        break;
+                    case SDLK_l: {
+                        tng::Deck& d = decks[activeDeck];
+                        if (e.key.keysym.mod & KMOD_SHIFT) {
+                            d.clearLoop();
+                        } else if (!(e.key.keysym.mod & (KMOD_ALT | KMOD_CTRL))) {
+                            d.setLoopActive(!d.loopActive()); // guard rejects bad pairs
+                        }
+                        break;
+                    }
                     case SDLK_m:
                         toggleMode();
                         break;
@@ -319,6 +386,11 @@ int main(int argc, char** argv) {
                         break;
                     default: break;
                 }
+            } else if (e.type == SDL_WINDOWEVENT &&
+                       e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                // M4d: a nudge must not survive alt-tab (the mouse-up event
+                // never arrives); restore the base pitch on both decks.
+                for (int i = 0; i < kDeckCount; ++i) views[i].cancelNudge(decks[i]);
             } else if (e.type == SDL_TEXTINPUT && !io.WantTextInput) {
                 // Printable keys via their produced character, so every layout
                 // works (US "=+-_[]0", German "+ -" keys, German Shift+0 "=").
@@ -327,7 +399,11 @@ int main(int argc, char** argv) {
                         case '+': case '=': case ']': pitchBy(+1); break;
                         case '-': case '_': case '[': pitchBy(-1); break;
                         case '0':
-                            if (!mixMode) decks[activeDeck].setRate(1.0);
+                            // M4d: skipped while a nudge owns the rate (the
+                            // nudge would overwrite the reset anyway).
+                            if (!mixMode && !views[activeDeck].nudging()) {
+                                decks[activeDeck].setRate(1.0);
+                            }
                             break;
                         default: break;
                     }
@@ -429,6 +505,10 @@ int main(int argc, char** argv) {
 
         for (int i = 0; i < kDeckCount; ++i) {
             if (loadPath[i]) beginLoad(i, std::filesystem::u8path(loadPath[i]));
+            // M4d: hot-cue save results bubble up to the status line.
+            std::string noticeMsg;
+            bool noticeErr = false;
+            if (views[i].takeNotice(noticeMsg, noticeErr)) setStatus(noticeMsg, noticeErr);
         }
 
         bool anyLoading = false;
@@ -443,6 +523,9 @@ int main(int argc, char** argv) {
         ImGui::TextDisabled(
             "keys: Space play/pause (active deck) | 1-4 stems A, 7-0 stems B | "
             "+/- pitch (0 = reset) | M single/mix | Q / Esc quit | drop on a deck");
+        ImGui::TextDisabled(
+            "Shift+1-8 hot cue (active deck) | I / O loop in/out, L toggle, Shift+L exit, "
+            "Alt+1-5 quick loop | Shift+click pitch fader = nudge (release snaps back)");
         ImGui::End();
 
         ImGui::Render();

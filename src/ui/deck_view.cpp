@@ -1,6 +1,7 @@
 #include "deck_view.h"
 
 #include "imgui.h"
+#include "track_loader.h" // saveCues after hot-cue edits (M4d)
 
 #include <algorithm>
 #include <cmath>
@@ -258,9 +259,11 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
         const bool atEnd =
             deck.positionFrames() >= static_cast<double>(data->frames) - 1.0;
         // Left block: buttons + time on the first line, beat/BPM under the
-        // buttons. Keeping the long beat text off the first line leaves the
-        // pitch fader and the VU meter inside the deck's column width (they
-        // were clipped at the panel edge otherwise).
+        // buttons, hot cues and the loop row after that. Keeping the long
+        // text off the first line leaves the pitch fader and the VU meter
+        // inside the deck's column width, and the cue/loop rows inside this
+        // group use the dead space under the beat line - the deck child
+        // clips anything that flows after the fader/VU line (M4d lesson).
         ImGui::BeginGroup();
         const char* playLabel = deck.playing() ? "Pause" : "Play";
         if (ImGui::Button(playLabel, ImVec2(80.0f, 0.0f))) {
@@ -268,11 +271,33 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
             deck.setPlaying(!deck.playing());
         }
         ImGui::SameLine();
-        // CUE (SPEC §4.5): v1 jumps to the track start and leaves the
-        // transport state alone. The full main-cue behavior (set at the
-        // current position when stopped, hold to preview, release to
-        // return) is M4d.
-        if (ImGui::Button("CUE", ImVec2(60.0f, 0.0f))) deck.requestSeek(0);
+        // CUE (SPEC §4.5): press while playing = jump to the main cue and
+        // pause; press while paused = set the cue at the current position and
+        // preview it while held; release = return to the cue and pause. The
+        // main cue is session-only and defaults to the track start.
+        if (ImGui::Button("CUE", ImVec2(60.0f, 0.0f))) {
+            // ImGui reports the click on release; the actions below use the
+            // press/hold/release edges instead.
+        }
+        const bool cuePressed = ImGui::IsItemClicked();
+        const bool cueHeld = ImGui::IsItemActive();
+        if (cuePressed) {
+            if (deck.playing()) {
+                deck.requestSeek(mainCueFrame_);
+                deck.setPlaying(false);
+                cuePreviewing_ = false;
+            } else {
+                mainCueFrame_ = static_cast<int64_t>(deck.positionFrames());
+                if (cueHeld) { // still held: preview from the fresh cue
+                    deck.setPlaying(true);
+                    cuePreviewing_ = true;
+                }
+            }
+        } else if (cuePreviewing_ && !cueHeld) {
+            deck.requestSeek(mainCueFrame_); // release: back to the cue
+            deck.setPlaying(false);
+            cuePreviewing_ = false;
+        }
         ImGui::SameLine();
         char t1[32], t2[32];
         const double fs = static_cast<double>(std::max(data->sampleRate, 1u));
@@ -283,53 +308,215 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
         const VfdSeg timeSegs[] = {{timeBuf, true}};
         vfdLine(timeSegs, 1);
         if (data->bpm > 0.0f) {
-            const double beats = deck.positionFrames() / fs *
-                                 static_cast<double>(data->bpm) * deck.rate() / 60.0;
-            char beatN[24], bpmN[24];
-            std::snprintf(beatN, sizeof(beatN), "%.1f",
-                          std::fmod(beats, 4.0) + 1.0);
+            // M4d: the beat phase is aligned to the grid (first beat offset)
+            // and shown as bar.beat, DJ-style - plus the effective BPM.
+            const double posSec = deck.positionFrames() / fs;
+            const double beats =
+                std::max(0.0, posSec - data->firstBeatOffsetMs / 1000.0) *
+                static_cast<double>(data->bpm) * deck.rate() / 60.0;
+            const long bar = static_cast<long>(beats / 4.0) + 1;
+            const long beat = static_cast<long>(beats - std::floor(beats / 4.0) * 4.0) + 1;
+            char barBeat[24], bpmN[24];
+            std::snprintf(barBeat, sizeof(barBeat), "%ld.%ld", bar, beat);
             std::snprintf(bpmN, sizeof(bpmN), "%.1f",
                           static_cast<double>(data->bpm) * deck.rate());
             const VfdSeg beatSegs[] = {
-                {"beat ", false}, {beatN, true}, {" | ", false},
-                {bpmN, true},     {" BPM", false}};
+                {"bar ", false}, {barBeat, true}, {" | ", false},
+                {bpmN, true},    {" BPM", false}};
             vfdLine(beatSegs, 5);
         }
+        // --- hot cues (SPEC §4.5, M4d): 8 slots, left-click set/trigger,
+        // right-click clear; edits persist via saveCues() (meta.json / sidecar).
+        if (data) {
+            ImGui::Spacing();
+            const double fs2 = static_cast<double>(std::max(data->sampleRate, 1u));
+            for (int s = 0; s < 8; ++s) {
+                ImGui::PushID(s);
+                // Re-read every iteration: setHotCue() may reallocate the vector.
+                const std::vector<tng::Cue>& cues = deck.track()->cues;
+                const bool filled = s < static_cast<int>(cues.size());
+                if (filled) {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.22f, 0.45f, 0.70f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.30f, 0.55f, 0.82f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.17f, 0.38f, 0.62f, 1.0f));
+                } else {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15f, 0.16f, 0.19f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.20f, 0.22f, 0.26f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.25f, 0.27f, 0.32f, 1.0f));
+                }
+                char lbl[8];
+                std::snprintf(lbl, sizeof(lbl), "%d", s + 1);
+                if (ImGui::Button(lbl, ImVec2(38.0f, 0.0f))) {
+                    if (filled) {
+                        int64_t frame =
+                            static_cast<int64_t>(cues[static_cast<size_t>(s)].positionMs * fs2 / 1000.0);
+                        if (frame < 0) frame = 0;
+                        if (frame >= data->frames) frame = data->frames - 1;
+                        deck.requestSeek(frame); // declicked jump (SPEC §4.5)
+                    } else {
+                        deck.setHotCue(s, deck.positionFrames() / fs2 * 1000.0);
+                        persistCues(deck, "hot cue set");
+                    }
+                }
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && filled) {
+                    deck.clearHotCue(s);
+                    persistCues(deck, "hot cue cleared");
+                }
+                if (ImGui::IsItemHovered()) {
+                    if (filled) {
+                        char tt[96];
+                        std::snprintf(tt, sizeof(tt),
+                                      "hot cue %d at %.2f s - click to jump, right-click to clear",
+                                      s + 1, cues[static_cast<size_t>(s)].positionMs / 1000.0);
+                        ImGui::SetTooltip("%s", tt);
+                    } else {
+                        ImGui::SetTooltip("hot cue %d empty - click to set at the playhead", s + 1);
+                    }
+                }
+                ImGui::PopStyleColor(3);
+                ImGui::PopID();
+                if (s != 7) ImGui::SameLine();
+            }
+        }
+
+        // --- loop controls (SPEC §4.5, M4d): manual in/out + on/off + exit and
+        // quick loops sized from the beat grid.
+        if (data) {
+            ImGui::Spacing();
+            const int64_t pos = static_cast<int64_t>(deck.positionFrames());
+            const bool hasBpm = data->bpm > 0.0f;
+            const bool pairSet = deck.loopIn() >= 0 && deck.loopOut() > deck.loopIn();
+
+            auto litButton = [](const char* label, float w, bool lit) {
+                if (lit) {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.22f, 0.45f, 0.70f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.30f, 0.55f, 0.82f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.17f, 0.38f, 0.62f, 1.0f));
+                }
+                const bool pressed = ImGui::Button(label, ImVec2(w, 0.0f));
+                if (lit) ImGui::PopStyleColor(3);
+                return pressed;
+            };
+
+            if (litButton("In", 34.0f, deck.loopIn() >= 0)) deck.setLoopIn(pos);
+            ImGui::SameLine();
+            if (litButton("Out", 38.0f, deck.loopOut() >= 0)) deck.setLoopOut(pos);
+            ImGui::SameLine();
+            if (!pairSet) ImGui::BeginDisabled();
+            if (litButton("On", 38.0f, deck.loopActive())) {
+                deck.setLoopActive(!deck.loopActive());
+            }
+            if (!pairSet) ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (litButton("Exit", 44.0f, false)) deck.clearLoop();
+
+            ImGui::SameLine();
+            static const int kQuick[5] = {1, 2, 4, 8, 16};
+            for (int q = 0; q < 5; ++q) {
+                ImGui::PushID(100 + q);
+                if (!hasBpm) ImGui::BeginDisabled();
+                char qlbl[8];
+                std::snprintf(qlbl, sizeof(qlbl), "%d", kQuick[q]);
+                if (ImGui::Button(qlbl, ImVec2(28.0f, 0.0f)) && !deck.setQuickLoop(kQuick[q])) {
+                    notice_ = "quick loop not possible here";
+                    noticeErr_ = true;
+                }
+                if (!hasBpm) ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    if (hasBpm) {
+                        ImGui::SetTooltip("%d-beat loop from the playhead (Alt+%d)",
+                                          kQuick[q], q + 1);
+                    } else {
+                        ImGui::SetTooltip("quick loops need a BPM in meta.json");
+                    }
+                }
+                ImGui::PopID();
+                if (q != 4) ImGui::SameLine();
+            }
+        }
+
         ImGui::EndGroup();
 
         // --- vertical pitch fader (SPEC §6), reversed like DJ gear: -------
         // top = slow, bottom = fast. The widget edits the inverted value, so
         // dragging down raises the pitch; the readout shows the real pitch.
-        ImGui::SameLine(0.0f, 24.0f);
+        // M4d: Shift+click nudge (jog-style bend) + the range toggle button.
+        ImGui::SameLine(0.0f, 16.0f);
         ImGui::BeginGroup();
         ImGui::TextDisabled("pitch");
         float shown = -pitchPct_;
-        ImGui::VSliderFloat("##pitch", ImVec2(34.0f, 90.0f), &shown, -10.0f, 10.0f, "",
-                            ImGuiSliderFlags_AlwaysClamp);
-        if (ImGui::IsItemActive()) {
+        ImGuiIO& io = ImGui::GetIO();
+        const bool armed = io.KeyShift || nudging_; // nudge armed: slider inert
+        if (armed) ImGui::BeginDisabled();
+        ImGui::VSliderFloat("##pitch", ImVec2(34.0f, 68.0f), &shown, -pitchRange_,
+                            pitchRange_, "", ImGuiSliderFlags_AlwaysClamp);
+        const bool faderHover =
+            ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
+        if (armed) ImGui::EndDisabled();
+
+        if (io.KeyShift && faderHover && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            // Nudge: bend to the value under the cursor (below the handle =
+            // faster), magnitude = click distance, minimum 0.5% on that side.
+            nudging_ = true;
+            nudgeBase_ = pitchPct_;
+            const ImVec2 r0 = ImGui::GetItemRectMin();
+            const ImVec2 r1 = ImGui::GetItemRectMax();
+            const float norm = (io.MousePos.y - r0.y) / (r1.y - r0.y);
+            const float handleNorm = (pitchRange_ + nudgeBase_) / (2.0f * pitchRange_);
+            const float side = (norm >= handleNorm) ? 1.0f : -1.0f;
+            float target = pitchRange_ * (2.0f * norm - 1.0f);
+            if (std::fabs(target - nudgeBase_) < 0.5f) target = nudgeBase_ + 0.5f * side;
+            nudgeTarget_ = std::max(-pitchRange_, std::min(pitchRange_, target));
+        }
+
+        if (nudging_) {
+            if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                // Release: snap back to the base pitch (the 15 ms rate glide
+                // smooths both the bend and the return).
+                pitchPct_ = nudgeBase_;
+                deck.setRate(1.0 + pitchPct_ / 100.0);
+                nudging_ = false;
+            } else {
+                deck.setRate(1.0 + nudgeTarget_ / 100.0); // handle stays at base
+            }
+        } else if (ImGui::IsItemActive()) {
             pitchPct_ = -shown;
             deck.setRate(1.0 + static_cast<double>(pitchPct_) / 100.0);
         } else {
             pitchPct_ = static_cast<float>((deck.rate() - 1.0) * 100.0); // idle: mirror
         }
+        const float shownPct = nudging_ ? nudgeTarget_ : pitchPct_;
         char pitchBuf[32];
-        std::snprintf(pitchBuf, sizeof(pitchBuf), "%+.2f%%", pitchPct_);
+        std::snprintf(pitchBuf, sizeof(pitchBuf), "%+.2f%%", shownPct);
         const VfdSeg pitchSegs[] = {{pitchBuf, true}};
         vfdLine(pitchSegs, 1);
+
+        // Range toggle (SPEC §4.3, user decision: 2-state 10/16 for v1).
+        char rangeLbl[16];
+        std::snprintf(rangeLbl, sizeof(rangeLbl), "%.0f%%", pitchRange_);
+        if (ImGui::Button(rangeLbl, ImVec2(44.0f, 0.0f))) {
+            pitchRange_ = (pitchRange_ == 10.0f) ? 16.0f : 10.0f;
+            if (pitchPct_ > pitchRange_) pitchPct_ = pitchRange_;
+            if (pitchPct_ < -pitchRange_) pitchPct_ = -pitchRange_;
+            deck.setRate(1.0 + pitchPct_ / 100.0);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("pitch range - click to toggle (10%% default, 16%%)");
+        }
         ImGui::EndGroup();
 
         // --- per-deck VU meter (not in SPEC; small bonus) -------------------
         // Peak of the deck's own output (pre line fader/crossfader), peak-hold
         // with a fast fall so the bar is readable at 60 fps. Clamped: four
         // hot stems can sum past 1.0, the bar just stays full.
-        ImGui::SameLine();
+        ImGui::SameLine(0.0f, 4.0f);
         ImGui::BeginGroup();
         ImGui::TextDisabled("VU");
         const float vuPeak = std::min(1.0f, deck.blockPeak());
         vuLevel_ = std::max(vuPeak, vuLevel_ * 0.88f);
         const ImVec2 vuPos = ImGui::GetCursorScreenPos();
         const float vuW = 22.0f;
-        const float vuH = 90.0f;
+        const float vuH = 68.0f;
         ImDrawList* dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(vuPos, ImVec2(vuPos.x + vuW, vuPos.y + vuH),
                           IM_COL32(14, 14, 18, 255));
@@ -379,6 +566,37 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
     }
 
     return loadPath;
+}
+
+bool DeckView::takeNotice(std::string& out, bool& err) {
+    if (notice_.empty()) return false;
+    out = notice_;
+    err = noticeErr_;
+    notice_.clear();
+    return true;
+}
+
+void DeckView::cancelNudge(tng::Deck& deck) {
+    if (!nudging_) return;
+    nudging_ = false;
+    pitchPct_ = nudgeBase_;
+    deck.setRate(1.0 + pitchPct_ / 100.0);
+}
+
+void DeckView::persistCues(const tng::Deck& deck, const char* what) {
+    if (trackPath_.empty() || deck.track() == nullptr) {
+        notice_ = std::string(what) + ": no track path to save to";
+        noticeErr_ = true;
+        return;
+    }
+    std::string err;
+    if (tng::saveCues(trackPath_, deck.track()->cues, &err)) {
+        notice_ = std::string(what) + " - saved";
+        noticeErr_ = false;
+    } else {
+        notice_ = std::string(what) + " - save failed: " + err;
+        noticeErr_ = true;
+    }
 }
 
 } // namespace tui
