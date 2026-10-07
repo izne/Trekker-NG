@@ -20,7 +20,7 @@ M4d completes the cue/loop controls: full CUE set/preview/return behavior,
 range toggle and a Shift+click nudge. The project is governed by
 [`SPEC.md`](SPEC.md).
 
-![Trekker-NG mix mode - two decks with waveforms, mixer column and per-deck VU meters](docs/ui-m4c.png)
+![Trekker-NG mix mode - two decks with hot cues, loop controls, bar/BPM readouts, mixer column and per-deck VU meters](docs/ui-m4d.png)
 
 | # | Milestone | Status |
 |---|-----------|--------|
@@ -279,7 +279,7 @@ src/
 tests/               doctest suite (SPEC §9), run automatically by build.sh
 tools/               manual acceptance helpers (test-track generator)
 examples/            example track
-docs/                FORMAT.md, USAGE.md, ui-m4c.png (screenshot)
+docs/                FORMAT.md, USAGE.md, ui-m4d.png (screenshot)
 third_party/         vendored: miniaudio, miniz, nlohmann/json, doctest, imgui,
                      fonts/DSEG7Classic-Regular.ttf (VFD readouts, SIL OFL 1.1)
 ```
