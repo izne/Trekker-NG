@@ -8,7 +8,7 @@ stem features of Traktor / djay, but for your own exported stems.
 Written in C++17. Windows first (MSYS2/MinGW64); the engine is kept portable
 so Linux/macOS can follow.
 
-**Current status: M4 of 6 (in progress)** - M4a/M4b are in: the equal-power
+**Current status: M4 of 6 complete** - M4a/M4b are in: the equal-power
 crossfader with line/master gains and a two-deck audio path in the engine,
 plus frame-accurate loops and cue points (parse + persistence). M4c adds the
 two-deck **Mix** mode to the UI: two decks side by side with a mixer column,
@@ -17,8 +17,9 @@ app always boots in Single mode). M4display renders the time, bar.beat, BPM
 and pitch readouts as cyan 7-segment VFD displays (embedded DSEG7 font).
 M4d completes the cue/loop controls: full CUE set/preview/return behavior,
 8 hot cues, manual and quick loops with buttons and keys, a ±10/±16 pitch
-range toggle and a Shift+click nudge. The project is governed by
-[`SPEC.md`](SPEC.md).
+range toggle and a Shift+click nudge. M4e amends SPEC §6 to describe the
+shipped UI as it stands. Next: M5 (3-band EQ, limiter, crossfader curves,
+settings). The project is governed by [`SPEC.md`](SPEC.md).
 
 ![Trekker-NG mix mode - two decks with hot cues, loop controls, bar/BPM readouts, mixer column and per-deck VU meters](docs/ui-m4d.png)
 
@@ -27,7 +28,7 @@ range toggle and a Shift+click nudge. The project is governed by
 | **M1** | Pitch PoC (console): load stems, one playhead, per-stem mute, pitch ±10% with cubic Hermite | done |
 | **M2** | Engine cleanup: rate smoothing, declick ramps, mixer extraction, unit tests | done |
 | **M3** | ImGui UI, one deck, track-format loader, waveforms (composite + per-stem lanes) | done |
-| **M4** | Second deck, crossfader, master section, hot cues, loops, beat display | in progress |
+| **M4** | Second deck, crossfader, master section, hot cues, loops, beat display | done |
 | **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings | planned |
 | **M6** | Packaging: Windows build, Linux AppImage, docs, example tracks | planned |
 
@@ -62,8 +63,8 @@ range toggle and a Shift+click nudge. The project is governed by
   playhead via buttons or `Alt+1`..`Alt+5` (needs a BPM; out clamps at the
   track end). Activation guards reject incomplete or inverted point pairs.
 - **Pitch range & nudge (M4d)** - a button under the readout toggles the
-  fader range between ±10 % and ±16 % (the SPEC §4.3 ±8 % step is skipped in
-  v1); `Shift`+click on the fader is a jog-style nudge that bends pitch to
+  fader range between ±10 % and ±16 % (the ±8 % step is deferred);
+  `Shift`+click on the fader is a jog-style nudge that bends pitch to
   the clicked position while held and snaps back on release.
 - **Mix mode (M4c)** - `M` toggles Single / Mix for the session: Mix shows
   deck A and deck B side by side with a mixer column (A/B line faders,
