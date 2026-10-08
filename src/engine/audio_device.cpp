@@ -23,6 +23,9 @@ struct AudioDevice::Impl {
     std::vector<float> scratchA;
     std::vector<float> scratchB;
     uint32_t frameCap = 0;
+    // M5c: resolved id of the named settings device; must outlive
+    // ma_device_init (cfg.playback.pDeviceID points at it).
+    ma_device_id deviceId{};
 };
 
 namespace {
@@ -72,8 +75,28 @@ AudioDevice::~AudioDevice() {
     impl_ = nullptr;
 }
 
+bool AudioDevice::listPlaybackDevices(std::vector<std::string>* names) {
+    if (names == nullptr) return false;
+    names->clear();
+    names->emplace_back(); // index 0 = system default ("" -> no name bound)
+
+    ma_context ctx;
+    ma_context_config ctxCfg = ma_context_config_init();
+    if (ma_context_init(nullptr, 0, &ctxCfg, &ctx) != MA_SUCCESS) return false;
+
+    ma_device_info* infos = nullptr;
+    ma_uint32 count = 0;
+    if (ma_context_get_devices(&ctx, &infos, &count, nullptr, nullptr) == MA_SUCCESS) {
+        for (ma_uint32 i = 0; i < count; ++i) {
+            names->emplace_back(infos[i].name);
+        }
+    }
+    ma_context_uninit(&ctx);
+    return true;
+}
+
 bool AudioDevice::init(Deck* deckA, Deck* deckB, Mixer* mixer, uint32_t sampleRate,
-                       uint32_t periodFrames, std::string* error) {
+                       uint32_t periodFrames, const char* deviceName, std::string* error) {
     impl_->deckA = deckA;
     impl_->deckB = deckB;
     impl_->mixer = mixer;
@@ -88,6 +111,36 @@ bool AudioDevice::init(Deck* deckA, Deck* deckB, Mixer* mixer, uint32_t sampleRa
     cfg.periodSizeInFrames = periodFrames;
     cfg.dataCallback = dataCallback;
     cfg.pUserData = impl_;
+    // M5c: named device from the settings screen; null/empty keeps the
+    // system default (matches the "" entry of listPlaybackDevices()). This
+    // miniaudio takes an id, not a name - enumerate, match by name, keep
+    // the id in the Impl so it outlives ma_device_init.
+    if (deviceName != nullptr && deviceName[0] != '\0') {
+        ma_context ctx;
+        ma_context_config ctxCfg = ma_context_config_init();
+        if (ma_context_init(nullptr, 0, &ctxCfg, &ctx) != MA_SUCCESS) {
+            if (error) *error = "device enumeration failed";
+            return false;
+        }
+        ma_device_info* infos = nullptr;
+        ma_uint32 count = 0;
+        bool found = false;
+        if (ma_context_get_devices(&ctx, &infos, &count, nullptr, nullptr) == MA_SUCCESS) {
+            for (ma_uint32 i = 0; i < count; ++i) {
+                if (std::strcmp(infos[i].name, deviceName) == 0) {
+                    impl_->deviceId = infos[i].id;
+                    found = true;
+                    break;
+                }
+            }
+        }
+        ma_context_uninit(&ctx);
+        if (!found) {
+            if (error) *error = std::string("device not found: ") + deviceName;
+            return false;
+        }
+        cfg.playback.pDeviceID = &impl_->deviceId;
+    }
 
     const ma_result result = ma_device_init(nullptr, &cfg, &impl_->device);
     if (result != MA_SUCCESS) {

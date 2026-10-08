@@ -208,7 +208,7 @@ int runLive(const Options& opt, tng::Deck& deck, const tng::DeckData& data) {
     tng::Mixer mixer;
     tng::AudioDevice device;
     std::string err;
-    if (!device.init(&deck, nullptr, &mixer, data.sampleRate, kPeriodFrames, &err)) {
+    if (!device.init(&deck, nullptr, &mixer, data.sampleRate, kPeriodFrames, nullptr, &err)) {
         std::fprintf(stderr, "error: audio device init failed: %s\n", err.c_str());
         return 1;
     }

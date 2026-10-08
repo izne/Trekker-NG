@@ -43,15 +43,16 @@ device restarts once at that rate.
 | loop `In` `Out` `On` `Exit` + `1`-`16` | manual loop control: `In`/`Out` set points at the playhead (lit when set), `On` toggles the loop (needs a valid pair), `Exit` clears it. The numbered buttons make a quick loop of that many beats starting at the playhead (needs a BPM in `meta.json`; near the track end the out point clamps to the end) |
 | `VU` meter | per-deck peak bar of that deck's own output: green, yellow above 0.7, red above 0.9 |
 | `1` `2` `3` `4` checkboxes | toggle that stem (colored as in `meta.json`) |
-| pitch fader | vertical, ±10 %, reversed like DJ gear: **up = slower, down = faster**; the button under the fader toggles the range **±10 % / ±16 %**. `Shift`+click on the fader is a jog-style **nudge**: pitch bends to the clicked position (below the handle = faster) while held, release snaps back |
+| pitch fader | vertical, ±10 % by default; direction is a setting (M5c): reversed like DJ gear (**up = slower, down = faster**, the default) or straight (up = faster); the button under the fader toggles the range **±10 % / ±16 %** (persisted). `Shift`+click on the fader is a jog-style **nudge**: pitch bends to the clicked position (toward the fader's fast end when reversed, slow end when straight) while held, release snaps back |
 | time / bar / pitch | remaining time with a minus sign (`-02:33.75`, total - position) and pitch % next to it, `bar 2.3 | 128.0 BPM` below (bar.beat aligned to the beat grid via `first_beat_offset_ms`, plus the effective BPM) - all render as cyan 7-segment VFD readouts on a dark inset (DSEG7 font); text like `bar`, `BPM` and `+`/`%` keeps the regular UI font |
 | path box + `Load` | load from a typed path |
 
 ### Single and Mix mode
 
-The app always starts in **Single** mode - one deck, full width. Press `M` to
-switch to **Mix** and back; the toggle lasts for the session only (persisting
-the choice waits for the M5 settings screen).
+The app starts in the last used mode (M5c persists it; a fresh install boots
+**Single** - one deck, full width). Press `M` to
+switch to **Mix** and back; the choice is written to `trekker-ng.json`
+immediately.
 
 Mix mode shows:
 
@@ -64,8 +65,8 @@ Mix mode shows:
   level the band had before the kill. Right-click a slider resets
   to flat), a crossfader (starts centered) with a curve selector - `lin`
   (linear), `pw` (constant power, the default), `cut` (sharp cut: full
-  volume until the last 5 % of the travel; session-only until the settings
-  screen) - and the master gain plus a red `CLIP` light that flashes when
+  volume until the last 5 % of the travel; persisted since M5c) - and the
+  master gain plus a red `CLIP` light that flashes when
   the master soft-clip limiter engages (the output bends smoothly toward
   +-1 instead of hard-clipping),
 - an **active deck** - the panel under the mouse, marked by its highlighted
@@ -89,8 +90,29 @@ Mix mode shows:
 | `L` | toggle the loop on / off (a pair must be set; the guard rejects incomplete or inverted points) |
 | `Shift+L` | exit and clear the loop |
 | `Alt+1` … `Alt+5` | quick loop of 1 / 2 / 4 / 8 / 16 beats from the playhead (active deck; needs a BPM) |
-| `M` | toggle Single / Mix mode (session only - always boots Single) |
+| `M` | toggle Single / Mix mode (persisted - next boot restores it) |
 | `Q` / `Esc` | quit |
+
+### Settings (`[settings]` next to the mode button)
+
+A small window (M5c) with, top to bottom:
+
+| Control | What it does |
+|---|---|
+| `audio device` | playback device dropdown from miniaudio's enumeration (`(default)` = system default); changing it restarts the audio device (brief dropout) |
+| `buffer size` | callback size in frames: 64 / 128 / 256 (default) / 512 / 1024; smaller = lower latency, more load; changing it restarts the audio device |
+| `pitch range` | ±10 % or ±16 % for both decks' faders (same value the per-deck button toggles) |
+| `reversed pitch fader` | checked (default) = DJ-style up = slower; unchecked = up = faster |
+| `start in Mix mode` | boot mode (same value `M` persists) |
+| `crossfader curve` | `lin` / `pw` / `cut` - same selector as the mixer column |
+
+Master gain has no row in the window: the mixer column slider persists its
+value on release (same write-through file).
+
+Every change applies immediately and saves to **`trekker-ng.json` next to
+the exe** (portable-style, plain JSON via the same nlohmann stack as
+`meta.json`). A missing or corrupt file falls back to the defaults; an
+out-of-range value in the file is clamped on load.
 
 Keyboard pitch steps move the fader, so both controls always show the same
 value. Digit shortcuts ignore Alt/Ctrl so a modified digit never toggles a

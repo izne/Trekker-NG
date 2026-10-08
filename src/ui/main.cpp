@@ -11,6 +11,7 @@
 #include "audio_device.h"
 #include "deck.h"
 #include "mixer.h"
+#include "settings.h"
 #include "track_loader.h"
 
 #include "SDL.h"
@@ -28,6 +29,7 @@
 #include <future>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "font_dseg.inc" // embedded DSEG7 Classic (SIL OFL 1.1), M4display
 
@@ -40,10 +42,10 @@
 
 namespace {
 
-constexpr uint32_t kPeriodFrames = 256; // SPEC §4.7
 constexpr int kDeckCount = 2;
 constexpr float kMixerWidth = 150.0f; // center column in Mix mode
 constexpr float kStatusReserve = 82.0f; // bottom lines under the deck children (2 hint lines)
+constexpr const char* kXfNames[3] = {"lin", "pw", "cut"}; // crossfader curves (M5b/M5c)
 
 void showError(const char* what) {
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Trekker-NG", what, nullptr);
@@ -121,6 +123,23 @@ int main(int argc, char** argv) {
     ImGui_ImplSDL2_InitForOpenGL(window, glctx);
     ImGui_ImplOpenGL3_Init("#version 130");
 
+    // M5c: user settings, loaded from trekker-ng.json next to the exe
+    // (portable-style, same nlohmann JSON stack as meta.json / cue files).
+    // Missing or corrupt file = defaults (Settings::load keeps them).
+    tng::Settings settings;
+    std::filesystem::path settingsPath;
+    {
+        char* base = SDL_GetBasePath();
+        settingsPath = std::filesystem::u8path(base ? base : "./");
+        SDL_free(base);
+        settingsPath /= "trekker-ng.json";
+        settings.load(settingsPath);
+    }
+    bool showSettings = false;
+    std::vector<std::string> deviceNames; // filled lazily by the settings window
+    bool deviceNamesLoaded = false;
+    uint32_t periodFrames = static_cast<uint32_t>(settings.bufferFrames); // audio callback size
+
     std::array<tng::Deck, kDeckCount> decks;
     std::array<tui::DeckView, kDeckCount> views;
     tng::Mixer mixer;
@@ -128,9 +147,9 @@ int main(int argc, char** argv) {
     bool deviceUp = false;
     uint32_t devRate = 0;
 
-    // Always boots Single (user decision 2026-10-04): the M toggle is
-    // session-only until the M5 settings screen adds real persistence.
-    bool mixMode = false;
+    // M5c: the boot mode is a persisted setting (the M toggle writes it
+    // back on every flip, so the next boot starts where you left off).
+    bool mixMode = settings.bootMixMode;
     int activeDeck = 0;   // deck the global keys target (hovered panel in Mix)
 
     // UI-session memory: the EQ level a kill button had before it was
@@ -149,7 +168,14 @@ int main(int argc, char** argv) {
     // (crossfader -1) -> loudness identical to M3; Mix: centered, both
     // decks audible. Deck B is registered with the device in both modes (a
     // paused deck renders near-free silence) so toggling never re-inits.
-    mixer.setCrossfader(-1.0f);
+    // M5c: also seeds the persisted mixer/deck-view settings.
+    mixer.setCrossfader(mixMode ? 0.0f : -1.0f);
+    mixer.setXfCurve(settings.xfCurve);
+    mixer.setMasterGain(settings.masterGain);
+    for (int i = 0; i < kDeckCount; ++i) {
+        views[i].setPitchRange(decks[i], settings.pitchRangePct);
+        views[i].setPitchReversed(settings.pitchReversed);
+    }
 
     std::string status = "drop a track folder or .zip, or paste a path";
     bool statusError = false;
@@ -163,6 +189,14 @@ int main(int argc, char** argv) {
         statusError = err;
         std::fprintf(stderr, "[%s] %s\n", err ? "error" : "info", s.c_str());
         std::fflush(stderr);
+    };
+
+    // M5c: write-through persistence - every settings change saves
+    // immediately (same immediate semantics as the hot-cue sidecars).
+    auto saveSettings = [&] {
+        if (!settings.save(settingsPath)) {
+            setStatus("settings: could not write " + settingsPath.u8string(), true);
+        }
     };
 
     // Pitch from the keyboard, same feel as the console: 0.10% steps,
@@ -210,7 +244,10 @@ int main(int argc, char** argv) {
     auto startDevice = [&](uint32_t rate) -> bool {
         std::string err;
         mixer.setSampleRate(rate); // M5a: EQ smoothing runs in real time
-        if (!device.init(&decks[0], &decks[1], &mixer, rate, kPeriodFrames, &err)) {
+        // M5c: named device from settings ("" = system default).
+        const char* devName =
+            settings.deviceName.empty() ? nullptr : settings.deviceName.c_str();
+        if (!device.init(&decks[0], &decks[1], &mixer, rate, periodFrames, devName, &err)) {
             setStatus("audio init failed: " + err, true);
             return false;
         }
@@ -222,6 +259,17 @@ int main(int argc, char** argv) {
         deviceUp = true;
         devRate = rate;
         return true;
+    };
+
+    // M5c: device/buffer changes re-init the device at the current rate
+    // (brief dropout, same as the sample-rate restart in onLoaded).
+    auto applyDevice = [&]() {
+        if (deviceUp && devRate != 0) {
+            device.stop();
+            device.shutdown();
+            deviceUp = false;
+            startDevice(devRate);
+        }
     };
 
     auto beginLoad = [&](int di, const std::filesystem::path& path) {
@@ -287,6 +335,8 @@ int main(int argc, char** argv) {
         } else {
             mixer.setCrossfader(0.0f); // centered: both decks audible
         }
+        settings.bootMixMode = mixMode; // M5c: next boot starts in the last mode
+        saveSettings();
         setStatus(mixMode ? "mix mode - two decks, crossfader centered"
                           : "single mode - deck B paused",
                   false);
@@ -584,9 +634,8 @@ int main(int argc, char** argv) {
                                ImGuiSliderFlags_AlwaysClamp);
             if (ImGui::IsItemActive()) mixer.setCrossfader(xf);
 
-            // M5b: crossfader curve selector (session-only until the M5c
-            // settings screen) - three tiny selects, the active one lit.
-            static const char* kXfNames[3] = {"lin", "pw", "cut"};
+            // M5b: crossfader curve selector. M5c: persisted (written on
+            // click, next boot restores it).
             static const char* kXfTips[3] = {
                 "linear crossfade",
                 "constant power (equal power, default)",
@@ -598,6 +647,8 @@ int main(int argc, char** argv) {
                 if (ImGui::Selectable(kXfNames[c], mixer.xfCurve() == c, 0,
                                       ImVec2(38.0f, 0.0f))) {
                     mixer.setXfCurve(c);
+                    settings.xfCurve = c;
+                    saveSettings();
                 }
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kXfTips[c]);
                 ImGui::PopID();
@@ -610,6 +661,10 @@ int main(int argc, char** argv) {
             ImGui::SliderFloat("##master", &master, 0.0f, 100.0f, "%.0f%%",
                                ImGuiSliderFlags_AlwaysClamp);
             if (ImGui::IsItemActive()) mixer.setMasterGain(master / 100.0f);
+            if (ImGui::IsItemDeactivatedAfterEdit()) { // M5c: persist on release
+                settings.masterGain = mixer.masterGain();
+                saveSettings();
+            }
 
             // M5b: the mixer's one-shot clip flag drives a short red light
             // (the soft clip itself lives in the engine, on the master).
@@ -650,6 +705,15 @@ int main(int argc, char** argv) {
             std::string noticeMsg;
             bool noticeErr = false;
             if (views[i].takeNotice(noticeMsg, noticeErr)) setStatus(noticeMsg, noticeErr);
+            // M5c: the 10/16 button on either deck flips the shared range -
+            // mirror it to the other view and persist (once per change).
+            if (views[i].pitchRange() != settings.pitchRangePct) {
+                settings.pitchRangePct = views[i].pitchRange();
+                for (int j = 0; j < kDeckCount; ++j) {
+                    views[j].setPitchRange(decks[j], settings.pitchRangePct);
+                }
+                saveSettings();
+            }
         }
 
         bool anyLoading = false;
@@ -661,6 +725,8 @@ int main(int argc, char** argv) {
                            "%s", status.c_str());
         if (ImGui::Button(mixMode ? "[Single]" : "[Mix]")) toggleMode();
         ImGui::SameLine();
+        if (ImGui::Button("[settings]")) showSettings = !showSettings;
+        ImGui::SameLine();
         ImGui::TextDisabled(
             "keys: Space play/pause (active deck) | 1-4 stems A, 7-0 stems B | "
             "+/- pitch (0 = reset) | M single/mix | Q / Esc quit | drop on a deck");
@@ -668,6 +734,100 @@ int main(int argc, char** argv) {
             "Shift+1-8 hot cue (active deck) | I / O loop in/out, L toggle, Shift+L exit, "
             "Alt+1-5 quick loop | Shift+click pitch fader = nudge (release snaps back)");
         ImGui::End();
+
+        // --- M5c settings window (SPEC §4.3/§6): --------------------------
+        // Immediate-apply + write-through save: every change hits the engine
+        // or the views right away and lands in trekker-ng.json. Device and
+        // buffer changes restart the audio device (brief dropout).
+        if (showSettings) {
+            ImGui::SetNextWindowSize(ImVec2(0.0f, 0.0f), ImGuiCond_Appearing);
+            if (ImGui::Begin("settings", &showSettings)) {
+                if (!deviceNamesLoaded) {
+                    tng::AudioDevice::listPlaybackDevices(&deviceNames);
+                    deviceNamesLoaded = true;
+                }
+                ImGui::TextDisabled("audio device");
+                if (ImGui::BeginCombo(
+                        "##dev", settings.deviceName.empty() ? "(default)"
+                                                             : settings.deviceName.c_str())) {
+                    for (const std::string& name : deviceNames) {
+                        const bool sel = settings.deviceName == name;
+                        if (ImGui::Selectable(name.empty() ? "(default)" : name.c_str(),
+                                              sel)) {
+                            if (!sel) {
+                                settings.deviceName = name;
+                                saveSettings();
+                                applyDevice();
+                            }
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::TextDisabled("buffer size");
+                static const char* kBufNames[] = {"64", "128", "256", "512", "1024"};
+                static const int kBufFrames[] = {64, 128, 256, 512, 1024};
+                int bufIdx = 2;
+                for (int i = 0; i < 5; ++i) {
+                    if (kBufFrames[i] == settings.bufferFrames) bufIdx = i;
+                }
+                if (ImGui::BeginCombo("##buf", kBufNames[bufIdx])) {
+                    for (int i = 0; i < 5; ++i) {
+                        const bool sel = i == bufIdx;
+                        if (ImGui::Selectable(kBufNames[i], sel)) {
+                            if (!sel) {
+                                settings.bufferFrames = kBufFrames[i];
+                                periodFrames = static_cast<uint32_t>(kBufFrames[i]);
+                                saveSettings();
+                                applyDevice();
+                            }
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::TextDisabled("pitch range");
+                if (ImGui::BeginCombo("##pr",
+                                      settings.pitchRangePct == 16.0f ? "16%" : "10%")) {
+                    if (ImGui::Selectable("10%", settings.pitchRangePct == 10.0f)) {
+                        settings.pitchRangePct = 10.0f;
+                        for (int i = 0; i < kDeckCount; ++i) {
+                            views[i].setPitchRange(decks[i], settings.pitchRangePct);
+                        }
+                        saveSettings();
+                    }
+                    if (ImGui::Selectable("16%", settings.pitchRangePct == 16.0f)) {
+                        settings.pitchRangePct = 16.0f;
+                        for (int i = 0; i < kDeckCount; ++i) {
+                            views[i].setPitchRange(decks[i], settings.pitchRangePct);
+                        }
+                        saveSettings();
+                    }
+                    ImGui::EndCombo();
+                }
+                if (ImGui::Checkbox("reversed pitch fader (up = slower)",
+                                    &settings.pitchReversed)) {
+                    for (int i = 0; i < kDeckCount; ++i) {
+                        views[i].setPitchReversed(settings.pitchReversed);
+                    }
+                    saveSettings();
+                }
+                if (ImGui::Checkbox("start in Mix mode", &settings.bootMixMode)) {
+                    saveSettings();
+                }
+                ImGui::TextDisabled("crossfader curve");
+                for (int c = 0; c < 3; ++c) {
+                    if (c > 0) ImGui::SameLine(0.0f, 4.0f);
+                    ImGui::PushID(100 + c);
+                    if (ImGui::Selectable(kXfNames[c], mixer.xfCurve() == c, 0,
+                                          ImVec2(38.0f, 0.0f))) {
+                        mixer.setXfCurve(c);
+                        settings.xfCurve = c;
+                        saveSettings();
+                    }
+                    ImGui::PopID();
+                }
+            }
+            ImGui::End();
+        }
 
         ImGui::Render();
         int dw = 0;

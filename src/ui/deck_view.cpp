@@ -448,16 +448,17 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
 
         ImGui::EndGroup();
 
-        // --- vertical pitch fader (SPEC §6), reversed like DJ gear: -------
-        // top = slow, bottom = fast. The widget edits the inverted value, so
-        // dragging down raises the pitch; the % readout sits on the
-        // transport line next to the remaining time (user decision
-        // 2026-10-05 - it used to live under the fader).
+        // --- vertical pitch fader (SPEC §6): ------------------------------
+        // M5c: direction is a persisted setting (SPEC §4.3). Reversed
+        // (default, DJ gear): top = slow, bottom = fast. Straight: top =
+        // fast. The widget always edits the on-screen value; pitchPct_ is
+        // mapped through the direction. The % readout sits on the transport
+        // line next to the remaining time (user decision 2026-10-05).
         // M4d: Shift+click nudge (jog-style bend) + the range toggle button.
         ImGui::SameLine(0.0f, 16.0f);
         ImGui::BeginGroup();
         ImGui::TextDisabled("pitch");
-        float shown = -pitchPct_;
+        float shown = pitchReversed_ ? -pitchPct_ : pitchPct_;
         ImGuiIO& io = ImGui::GetIO();
         const bool armed = io.KeyShift || nudging_; // nudge armed: slider inert
         if (armed) ImGui::BeginDisabled();
@@ -468,17 +469,22 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
         if (armed) ImGui::EndDisabled();
 
         if (io.KeyShift && faderHover && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-            // Nudge: bend to the value under the cursor (below the handle =
-            // faster), magnitude = click distance, minimum 0.5% on that side.
+            // Nudge: bend toward the value under the cursor (below the
+            // handle = slider low end = +pitch/faster when reversed,
+            // -pitch/slower when straight), magnitude = click distance,
+            // minimum 0.5% on that side.
             nudging_ = true;
             nudgeBase_ = pitchPct_;
             const ImVec2 r0 = ImGui::GetItemRectMin();
             const ImVec2 r1 = ImGui::GetItemRectMax();
             const float norm = (io.MousePos.y - r0.y) / (r1.y - r0.y);
-            const float handleNorm = (pitchRange_ + nudgeBase_) / (2.0f * pitchRange_);
+            const float shownBase = pitchReversed_ ? -nudgeBase_ : nudgeBase_;
+            const float handleNorm = (pitchRange_ - shownBase) / (2.0f * pitchRange_);
             const float side = (norm >= handleNorm) ? 1.0f : -1.0f;
-            float target = pitchRange_ * (2.0f * norm - 1.0f);
-            if (std::fabs(target - nudgeBase_) < 0.5f) target = nudgeBase_ + 0.5f * side;
+            // norm -> pitchPct: reversed below = +pitch, straight below = -pitch
+            const float k = pitchReversed_ ? 1.0f : -1.0f;
+            float target = k * pitchRange_ * (2.0f * norm - 1.0f);
+            if (std::fabs(target - nudgeBase_) < 0.5f) target = nudgeBase_ + 0.5f * side * k;
             nudgeTarget_ = std::max(-pitchRange_, std::min(pitchRange_, target));
         }
 
@@ -493,7 +499,7 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
                 deck.setRate(1.0 + nudgeTarget_ / 100.0); // handle stays at base
             }
         } else if (ImGui::IsItemActive()) {
-            pitchPct_ = -shown;
+            pitchPct_ = pitchReversed_ ? -shown : shown; // drag: map back through direction
             deck.setRate(1.0 + static_cast<double>(pitchPct_) / 100.0);
         } else {
             pitchPct_ = static_cast<float>((deck.rate() - 1.0) * 100.0); // idle: mirror
@@ -503,10 +509,7 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
         char rangeLbl[16];
         std::snprintf(rangeLbl, sizeof(rangeLbl), "%.0f%%", pitchRange_);
         if (ImGui::Button(rangeLbl, ImVec2(44.0f, 0.0f))) {
-            pitchRange_ = (pitchRange_ == 10.0f) ? 16.0f : 10.0f;
-            if (pitchPct_ > pitchRange_) pitchPct_ = pitchRange_;
-            if (pitchPct_ < -pitchRange_) pitchPct_ = -pitchRange_;
-            deck.setRate(1.0 + pitchPct_ / 100.0);
+            setPitchRange(deck, (pitchRange_ == 10.0f) ? 16.0f : 10.0f);
         }
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("pitch range - click to toggle (10%% default, 16%%)");

@@ -62,8 +62,20 @@ public:
     // false when there is nothing pending.
     bool takeNotice(std::string& out, bool& err);
 
-    // M4d: the fader's pitch range (SPEC §4.3 selector, session-only toggle).
+    // M4d: the fader's pitch range (SPEC §4.3 selector; M5c: seeded from
+    // settings, the 10/16 button still toggles it live).
     float pitchRange() const { return pitchRange_; }
+    void setPitchRange(tng::Deck& deck, float range) {
+        pitchRange_ = range;
+        if (pitchPct_ > pitchRange_) pitchPct_ = pitchRange_;
+        if (pitchPct_ < -pitchRange_) pitchPct_ = -pitchRange_;
+        deck.setRate(1.0 + pitchPct_ / 100.0);
+    }
+
+    // M5c: pitch fader direction (SPEC §4.3). true = DJ-style reversed
+    // (up = slower, the historical default); false = up = faster.
+    void setPitchReversed(bool reversed) { pitchReversed_ = reversed; }
+    bool pitchReversed() const { return pitchReversed_; }
 
     // M4d: true while a Shift+click nudge owns the deck rate (pitch keys back
     // off so they cannot stomp the base pitch the nudge restores).
@@ -92,7 +104,8 @@ private:
     // --- M4d state (per deck view) ---
     int64_t mainCueFrame_ = 0;  // main cue (SPEC §4.5), session-only, 0 = start
     bool cuePreviewing_ = false; // CUE held: previewing, return on release
-    float pitchRange_ = 10.0f;  // SPEC §4.3 selector: 10 or 16 (session-only)
+    float pitchRange_ = 10.0f;  // SPEC §4.3 selector: 10 or 16 (M5c: persisted)
+    bool pitchReversed_ = true; // M5c: DJ-style up = slower (settings seed)
     bool nudging_ = false;      // Shift+click nudge active on the fader
     float nudgeBase_ = 0.0f;    // pitchPct_ frozen at the nudge press
     float nudgeTarget_ = 0.0f;  // bent pitch while the mouse is held

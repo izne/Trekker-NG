@@ -71,10 +71,10 @@ Deck B: 4 stems ──(shared playhead, rate)──► stem gains ──► sum 
 
 - **Varispeed only.** Rate change alters both tempo and pitch, with no time-stretching or pitch-preserving algorithm in v1.
 - Interpolation: **cubic Hermite (Catmull-Rom)** by default. Provide linear as a debug option. Interpolator is a pure function, unit tested.
-- Pitch range: **±10% / ±16%** in v1 (default ±10%, toggled under the fader); the ±8% option is deferred. Fader resolution at least 0.01%.
+- Pitch range: **±10% / ±16%** in v1 (default ±10%, toggled under the fader, persisted via the settings screen); the ±8% option is deferred. Fader resolution at least 0.01%.
 - **Rate smoothing:** rate changes are smoothed per sample or per block (one-pole or linear ramp, ~10 to 20 ms) to avoid zipper noise.
 - Display: current pitch in % (e.g. `+3.42%`) and effective BPM (`bpm * rate`).
-- Resolve a **reverse pitch fader direction** option (the vinyl convention is: up = faster is a setting, not a hardcoded assumption).
+- **Reverse pitch fader direction** is a setting (M5c), not a hardcoded assumption: default DJ-style (up = slower), optionally up = faster; persisted with the rest of the settings and applied to the fader, the nudge math and the keyboard pitch.
 - **Acceptance test:** a pure 440 Hz sine stem played at +10% must measure about 484 Hz (±0.5 Hz) with no audible artifacts, and all 4 stems must remain phase-aligned (see §9).
 
 ### 4.4 Stem on/off
@@ -102,7 +102,7 @@ The audio callback must **never**: allocate, lock a mutex, touch disk, log via `
 
 - UI-to-audio communication uses `std::atomic` values or a lock-free SPSC queue.
 - Buffer swaps (loading a new track) are done by preparing the new deck data off-thread, then publishing it with an atomic pointer swap. The old data is freed on a non-audio thread.
-- Process in float32 internally. Output buffer size is configurable (default 256 frames, with target latency under 15 ms where the OS allows).
+- Process in float32 internally. Output buffer size is configurable (default 256 frames, with target latency under 15 ms where the OS allows); M5c makes it a persisted settings choice (64/128/256/512/1024).
 
 ## 5. Track format ("Trekker-NG track", v1)
 
@@ -151,17 +151,25 @@ mytrack/
 
 - **Two modes:** Single (one deck, full width) is the boot default; `M` toggles
   Mix (two deck panels side by side, crossfader and master section between
-  them). Session-only in v1 - persisting it waits for the M5 settings screen.
+  them). M5c: the last used mode is persisted and restored at the next boot
+  (the settings screen also has a "start in Mix mode" checkbox for it).
   v1 is exactly 2 decks.
 - In Mix mode the **active deck** is the panel under the mouse (highlighted
   title); the global transport/pitch/cue keys target it.
 - Per deck: track title, 4 stem toggle buttons (colored, lit when on),
   play/pause, CUE (set / hold-to-preview / return, §4.5), 8 hot cue buttons,
   loop controls (In/Out/On/Exit + 1/2/4/8/16-beat quick loops), vertical pitch
-  fader with a range toggle (v1: ±10 / ±16 %), remaining-time and pitch
+  fader with a range toggle (v1: ±10 / ±16 %) and a persisted direction
+  (§4.3, M5c), remaining-time and pitch
   readouts plus a `bar N.M | BPM` counter, per-deck VU meter,
   load box + button; Shift+click the
   fader to nudge.
+- **Settings screen** (M5c, `[settings]` next to the mode button): audio
+  device (miniaudio enumeration, default = system), buffer size, pitch
+  range, reversed-pitch-fader checkbox, boot mode, crossfader curve, master
+  gain. Immediate apply + write-through save to `trekker-ng.json` next to
+  the exe (nlohmann JSON, portable-style, same stack as meta.json); device
+  and buffer changes restart the audio device (brief dropout).
 - **Waveform:** overview (summed stems plus per-stem lanes) with a playhead;
   pre-computed min/max peaks on load, click-to-seek. A stretch goal is a
   zoomed scrolling waveform.
@@ -189,6 +197,7 @@ trekker-ng/
       interpolate.{h,cpp}
       eq.{h,cpp}
       mixer.{h,cpp}
+      settings.{h,cpp}    (M5c: trekker-ng.json load/save, clamped fields)
       track_loader.{h,cpp}
       audio_device.{h,cpp}
     ui/

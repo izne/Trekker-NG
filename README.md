@@ -12,8 +12,9 @@ so Linux/macOS can follow.
 crossfader with line/master gains and a two-deck audio path in the engine,
 plus frame-accurate loops and cue points (parse + persistence). M4c adds the
 two-deck **Mix** mode to the UI: two decks side by side with a mixer column,
-per-deck VU meters, a CUE button, and the session-only `M` mode toggle (the
-app always boots in Single mode). M4display renders the time, bar.beat, BPM
+per-deck VU meters, a CUE button, and the `M` mode toggle (M5c: the last
+used mode is restored at the next boot). M4display renders the time,
+bar.beat, BPM
 and pitch readouts as cyan 7-segment VFD displays (embedded DSEG7 font).
 M4d completes the cue/loop controls: full CUE set/preview/return behavior,
 8 hot cues, manual and quick loops with buttons and keys, a ±10/±16 pitch
@@ -21,8 +22,12 @@ range toggle and a Shift+click nudge. M4e amends SPEC §6 to describe the
 shipped UI as it stands. M5 is in progress: M5a added the per-deck 3-band EQ
 to the Mix-mode mixer column; M5b adds the crossfader curve selector
 (linear / constant power / sharp cut) and the master soft-clip limiter with
-a CLIP light; the settings screen follows. The project is governed by
+a CLIP light; M5c ships the settings screen (audio device, buffer size,
+pitch range, fader direction, boot mode, curve, master - persisted to
+`trekker-ng.json` next to the exe). The project is governed by
 [`SPEC.md`](SPEC.md).
+
+![Trekker-NG settings window over mix mode](docs/ui-m5c-settings.png)
 
 ![Trekker-NG mix mode - two decks with hot cues, loop controls, bar/BPM readouts, mixer column and per-deck VU meters](docs/ui-m4d.png)
 
@@ -32,7 +37,7 @@ a CLIP light; the settings screen follows. The project is governed by
 | **M2** | Engine cleanup: rate smoothing, declick ramps, mixer extraction, unit tests | done |
 | **M3** | ImGui UI, one deck, track-format loader, waveforms (composite + per-stem lanes) | done |
 | **M4** | Second deck, crossfader, master section, hot cues, loops, beat display | done |
-| **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings | in progress (M5a, M5b) |
+| **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings | in progress (M5a, M5b, M5c) |
 | **M6** | Packaging: Windows build, Linux AppImage, docs, example tracks | planned |
 
 ## Features
@@ -77,15 +82,24 @@ a CLIP light; the settings screen follows. The project is governed by
   playhead via buttons or `Alt+1`..`Alt+5` (needs a BPM; out clamps at the
   track end). Activation guards reject incomplete or inverted point pairs.
 - **Pitch range & nudge (M4d)** - a button under the fader toggles the
-  fader range between ±10 % and ±16 % (the ±8 % step is deferred);
+  fader range between ±10 % and ±16 % (the ±8 % step is deferred; M5c
+  persists the choice and mirrors it to both decks);
   `Shift`+click on the fader is a jog-style nudge that bends pitch to
   the clicked position while held and snaps back on release.
-- **Mix mode (M4c)** - `M` toggles Single / Mix for the session: Mix shows
+- **Settings screen (M5c)** - `[settings]` next to the mode button opens a
+  window with the audio device (miniaudio enumeration, default = system),
+  buffer size (64..1024, default 256), pitch range, a reversed-pitch-fader
+  checkbox (default on, DJ-style up = slower), boot mode, crossfader curve
+  and master gain. Every change applies immediately and saves write-through
+  to `trekker-ng.json` next to the exe (nlohmann JSON, same stack as
+  meta.json; missing or corrupt file = defaults); device and buffer changes
+  restart the audio device (brief dropout).
+- **Mix mode (M4c)** - `M` toggles Single / Mix: Mix shows
   deck A and deck B side by side with a mixer column (A/B line faders,
   crossfader, master), and the deck under the mouse is the *active* deck the
   global keys target (its title is highlighted). Drop or Load routes to the
-  deck under the pointer. The app always boots in Single mode - persisting
-  the toggle waits for the M5 settings screen.
+  deck under the pointer. M5c: the last used mode is persisted and restored
+  at the next boot.
 - **Offline render mode** - render to WAV without a soundcard (`--render`),
   used for tests and automation.
 - **ImGui UI with drag & drop** - drop a track folder or `.zip` anywhere on
@@ -290,14 +304,15 @@ src/
     mixer.{h,cpp}            line/cross/master gains, per-deck EQ, selectable
                              crossfader curve, soft-clip limiter
     eq.{h,cpp}               3-band EQ: LR4 band-split, Traktor kill/boost curve
+    settings.{h,cpp}         trekker-ng.json load/save (M5c), clamped fields
     track_loader.{h,cpp}     folder/zip -> DeckData, meta.json, cue persistence
-    audio_device.{h,cpp}     miniaudio device, realtime callback
+    audio_device.{h,cpp}     miniaudio device + playback-device enumeration
   ui/                M3 ImGui + SDL2 front-end (main loop, deck view)
   console/           M1/M2 console front-end (kept as trekker-console)
 tests/               doctest suite (SPEC §9), run automatically by build.sh
 tools/               manual acceptance helpers (test-track generator)
 examples/            example track
-docs/                FORMAT.md, USAGE.md, ui-m4d.png (screenshot)
+docs/                FORMAT.md, USAGE.md, ui-m4d.png, ui-m5c-settings.png
 third_party/         vendored: miniaudio, miniz, nlohmann/json, doctest, imgui,
                      fonts/DSEG7Classic-Regular.ttf (VFD readouts, SIL OFL 1.1)
 ```
