@@ -1,15 +1,25 @@
 #include "mixer.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace tng {
 
 namespace {
 
-float clampUnit(float v) noexcept {
-    if (v > 1.0f) return 1.0f;
-    if (v < -1.0f) return -1.0f;
-    return v;
+// M5b soft-clip limiter (SPEC §4.6): below the knee the signal passes
+// bit-exact; above it a tanh knee maps (knee, inf) -> (knee, 1) and never
+// exceeds +-1. Zero state, pure math - realtime safe.
+constexpr float kClipKnee = 0.9f;
+constexpr float kClipScale = 1.0f - kClipKnee; // headroom fed into tanh
+
+float softClip(float v, bool& hit) noexcept {
+    const float a = std::fabs(v);
+    if (a <= kClipKnee) return v;
+    hit = true;
+    const float y =
+        kClipKnee + kClipScale * std::tanh((a - kClipKnee) / kClipScale);
+    return v < 0.0f ? -y : y;
 }
 
 } // namespace
@@ -36,7 +46,7 @@ void Mixer::process(const float* deckA, const float* deckB, float* out,
     eqA_.beginBlock(frameCount);
     eqB_.beginBlock(frameCount);
 
-    // Target gains for this block: equal-power crossfade * line gain.
+    // Target gains for this block: crossfader curve * line gain.
     float targetA;
     float targetB;
     if (deckB == nullptr) {
@@ -44,9 +54,26 @@ void Mixer::process(const float* deckA, const float* deckB, float* out,
         targetB = 0.0f;
     } else {
         const float xf = crossfader_.load(std::memory_order_relaxed);
-        const float angle = (xf + 1.0f) * 0.78539816339f; // (xf + 1) * pi/4
-        targetA = std::cos(angle) * lineA;
-        targetB = std::sin(angle) * lineB;
+        const int curve = xfCurve_.load(std::memory_order_relaxed);
+        const float t = (xf + 1.0f) * 0.5f; // 0 = full A, 1 = full B
+        float ga;
+        float gb;
+        if (curve == kXfLinear) {
+            ga = 1.0f - t;
+            gb = t;
+        } else if (curve == kXfSharpCut) {
+            // Full volume until the last 5% of the travel toward the other
+            // deck (slope k = 20), then a linear fall to 0 at the end.
+            ga = std::min(1.0f, (1.0f - t) * 20.0f);
+            gb = std::min(1.0f, t * 20.0f);
+        } else {
+            // Constant power (M4 default): equal-power cos/sin pair.
+            const float angle = (xf + 1.0f) * 0.78539816339f; // (xf + 1) * pi/4
+            ga = std::cos(angle);
+            gb = std::sin(angle);
+        }
+        targetA = ga * lineA;
+        targetB = gb * lineB;
     }
 
     // Linear ramp across the block: the first sample steps away from the
@@ -56,16 +83,18 @@ void Mixer::process(const float* deckA, const float* deckB, float* out,
     const float stepB = frameCount > 0 ? (targetB - rampB_) / static_cast<float>(frameCount)
                                        : 0.0f;
 
+    bool clipHit = false;
     if (deckB == nullptr) {
-        // Single-deck path (console, legacy tests): no EQ stage, byte-
-        // identical to the pre-M5a render - the live UI always registers
-        // both decks and goes through the two-deck path below.
+        // Single-deck path (console, legacy tests): no EQ stage, no
+        // crossfader - the live UI always registers both decks and goes
+        // through the two-deck path below. The master soft clip applies
+        // here too (M5b: it is the master stage).
         for (uint32_t i = 0; i < frameCount; ++i) {
             rampA_ += stepA;
             const float gain = rampA_ * master;
             const uint32_t k = i * 2;
-            out[k] = clampUnit(deckA[k] * gain);
-            out[k + 1] = clampUnit(deckA[k + 1] * gain);
+            out[k] = softClip(deckA[k] * gain, clipHit);
+            out[k + 1] = softClip(deckA[k + 1] * gain, clipHit);
         }
     } else {
         for (uint32_t i = 0; i < frameCount; ++i) {
@@ -80,10 +109,11 @@ void Mixer::process(const float* deckA, const float* deckB, float* out,
             const float aR = eqA_.process(1, deckA[k + 1]);
             const float bL = eqB_.process(0, deckB[k]);
             const float bR = eqB_.process(1, deckB[k + 1]);
-            out[k] = clampUnit(aL * gainA + bL * gainB);
-            out[k + 1] = clampUnit(aR * gainA + bR * gainB);
+            out[k] = softClip(aL * gainA + bL * gainB, clipHit);
+            out[k + 1] = softClip(aR * gainA + bR * gainB, clipHit);
         }
     }
+    if (clipHit) clipFlag_.store(true, std::memory_order_relaxed);
 
     // Land exactly on the targets - kills accumulated float drift so the
     // next block's step starts from a clean value.
@@ -113,6 +143,20 @@ void Mixer::setCrossfader(float position) noexcept {
 
 float Mixer::crossfader() const noexcept {
     return crossfader_.load(std::memory_order_relaxed);
+}
+
+void Mixer::setXfCurve(int curve) noexcept {
+    if (curve < kXfLinear) curve = kXfLinear;
+    if (curve > kXfSharpCut) curve = kXfSharpCut;
+    xfCurve_.store(curve, std::memory_order_relaxed);
+}
+
+int Mixer::xfCurve() const noexcept {
+    return xfCurve_.load(std::memory_order_relaxed);
+}
+
+bool Mixer::takeClipFlag() noexcept {
+    return clipFlag_.exchange(false, std::memory_order_relaxed);
 }
 
 void Mixer::setMasterGain(float gain) noexcept {

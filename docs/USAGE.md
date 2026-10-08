@@ -61,8 +61,13 @@ Mix mode shows:
   (three thin vertical sliders labeled `lo / mid / hi` side by side: center
   = flat, top = +6 dB, bottom = kill; a square kill button under each band
   toggles kill and lights up while killed; clicking it again restores the
-  level the band had before the kill. Double-click a slider resets
-  to flat), a crossfader (starts centered) and the master gain,
+  level the band had before the kill. Right-click a slider resets
+  to flat), a crossfader (starts centered) with a curve selector - `lin`
+  (linear), `pw` (constant power, the default), `cut` (sharp cut: full
+  volume until the last 5 % of the travel; session-only until the settings
+  screen) - and the master gain plus a red `CLIP` light that flashes when
+  the master soft-clip limiter engages (the output bends smoothly toward
+  +-1 instead of hard-clipping),
 - an **active deck** - the panel under the mouse, marked by its highlighted
   title. `Space`, the pitch keys, the pitch reset and the cue/loop keys below
   act on it,

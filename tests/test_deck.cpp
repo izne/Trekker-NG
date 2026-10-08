@@ -279,21 +279,24 @@ TEST_CASE("hot publish: audio adopts new data, position resets (SPEC 4.7)") {
     CHECK(peak > 0.1f);
 }
 
-TEST_CASE("mixer: master gain and hard clamp (SPEC 4.6)") {
+TEST_CASE("mixer: master gain and soft clip (SPEC 4.6, M5b)") {
     tng::Mixer mixer;
     CHECK(mixer.masterGain() == doctest::Approx(0.7f));
 
-    std::vector<float> buf = {1.0f, -1.0f, 2.0f, -2.0f};
+    // Under the 0.9 knee the master gain applies bit-exact (no wrap).
+    std::vector<float> buf = {1.0f, -1.0f, 0.5f, -0.5f};
     mixer.process(buf.data(), nullptr, buf.data(), 2);
     CHECK(buf[0] == doctest::Approx(0.7f));
     CHECK(buf[1] == doctest::Approx(-0.7f));
-    CHECK(buf[2] == 1.0f);  // clamped, no wrap
-    CHECK(buf[3] == -1.0f);
+    CHECK(buf[2] == doctest::Approx(0.35f));
+    CHECK(buf[3] == doctest::Approx(-0.35f));
 
+    // Over the knee: soft-clipped just below 1.0, never wrapped.
     mixer.setMasterGain(1.0f);
     buf = {1.5f, 0.0f, 0.0f, 0.0f};
     mixer.process(buf.data(), nullptr, buf.data(), 1);
-    CHECK(buf[0] == 1.0f);
+    CHECK(buf[0] < 1.0f);
+    CHECK(buf[0] > 0.99f);
 }
 
 TEST_CASE("loop: playhead wraps at loop out (SPEC 4.5)") {

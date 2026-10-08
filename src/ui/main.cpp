@@ -140,6 +140,11 @@ int main(int argc, char** argv) {
     float eqPreKill[kDeckCount][tng::Eq3::kBands] = {
         {0.5f, 0.5f, 0.5f}, {0.5f, 0.5f, 0.5f}};
 
+    // M5b UI-session state: frames left to show the mixer column's CLIP
+    // light after the master soft clip engages (refreshed every frame from
+    // the mixer's one-shot flag; ~0.5 s at 60 fps).
+    int uiClipFrames = 0;
+
     // Single mode: deck A through the crossfader at exactly gain 1.0
     // (crossfader -1) -> loudness identical to M3; Mix: centered, both
     // decks audible. Deck B is registered with the device in both modes (a
@@ -480,9 +485,11 @@ int main(int argc, char** argv) {
             // (value semantics: 0.0 kill, 0.5 flat, 1.0 boost - Eq3::curve).
             // UI v2: three thin vertical sliders side by side (low/mid/high)
             // with an aligned label above each column and a kill toggle
-            // square below it (lit while killed); double-click a slider to
-            // snap it back to flat. NOTE: SameLine(x) takes an ABSOLUTE
-            // offset from the group start - a gap is SameLine(0.0f, gap).
+            // square below it (lit while killed); right-click a slider to
+            // snap it back to flat (double-click never worked: ImGui 1.92
+            // sliders use it for inline text input). NOTE: SameLine(x)
+            // takes an ABSOLUTE offset from the group start - a gap is
+            // SameLine(0.0f, gap).
             ImGui::Spacing();
             ImGui::TextDisabled("eq");
             static const char* kBandLabel[3] = {"lo", "mid", "hi"}; // column tags
@@ -515,20 +522,20 @@ int main(int argc, char** argv) {
                                         0.0f, 1.0f, "",
                                         ImGuiSliderFlags_AlwaysClamp);
                     if (ImGui::IsItemActive()) mixer.setEqKnob(d, b, knob);
+                    if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
+                        mixer.setEqKnob(d, b, 0.5f); // right-click = flat
                     if (ImGui::IsItemHovered()) {
                         const float gain = tng::Eq3::curve(knob);
                         if (gain <= 0.001f) {
                             ImGui::SetTooltip(
-                                "%s band: killed (double-click = flat)",
+                                "%s band: killed (right-click = flat)",
                                 kBandName[b]);
                         } else {
                             ImGui::SetTooltip(
-                                "%s band: %+.1f dB (double-click = flat)",
+                                "%s band: %+.1f dB (right-click = flat)",
                                 kBandName[b],
                                 20.0 * std::log10(static_cast<double>(gain)));
                         }
-                        if (ImGui::IsMouseDoubleClicked(0))
-                            mixer.setEqKnob(d, b, 0.5f);
                     }
                     // 0 dB center mark; overhangs the frame so it stays
                     // visible even when the handle sits exactly on it.
@@ -577,6 +584,25 @@ int main(int argc, char** argv) {
                                ImGuiSliderFlags_AlwaysClamp);
             if (ImGui::IsItemActive()) mixer.setCrossfader(xf);
 
+            // M5b: crossfader curve selector (session-only until the M5c
+            // settings screen) - three tiny selects, the active one lit.
+            static const char* kXfNames[3] = {"lin", "pw", "cut"};
+            static const char* kXfTips[3] = {
+                "linear crossfade",
+                "constant power (equal power, default)",
+                "sharp cut (full until the last 5%)",
+            };
+            for (int c = 0; c < 3; ++c) {
+                if (c > 0) ImGui::SameLine(0.0f, 4.0f);
+                ImGui::PushID(c);
+                if (ImGui::Selectable(kXfNames[c], mixer.xfCurve() == c, 0,
+                                      ImVec2(38.0f, 0.0f))) {
+                    mixer.setXfCurve(c);
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kXfTips[c]);
+                ImGui::PopID();
+            }
+
             ImGui::Spacing();
             ImGui::TextDisabled("master");
             float master = mixer.masterGain() * 100.0f;
@@ -584,6 +610,19 @@ int main(int argc, char** argv) {
             ImGui::SliderFloat("##master", &master, 0.0f, 100.0f, "%.0f%%",
                                ImGuiSliderFlags_AlwaysClamp);
             if (ImGui::IsItemActive()) mixer.setMasterGain(master / 100.0f);
+
+            // M5b: the mixer's one-shot clip flag drives a short red light
+            // (the soft clip itself lives in the engine, on the master).
+            if (mixer.takeClipFlag()) uiClipFrames = 30;
+            if (uiClipFrames > 0) --uiClipFrames;
+            if (uiClipFrames > 0) {
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                                      ImVec4(1.0f, 0.30f, 0.25f, 1.0f));
+                ImGui::Text("CLIP");
+                ImGui::PopStyleColor();
+            } else {
+                ImGui::TextDisabled("clip");
+            }
             ImGui::EndGroup();
 
             ImGui::SameLine();

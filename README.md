@@ -18,9 +18,11 @@ and pitch readouts as cyan 7-segment VFD displays (embedded DSEG7 font).
 M4d completes the cue/loop controls: full CUE set/preview/return behavior,
 8 hot cues, manual and quick loops with buttons and keys, a ±10/±16 pitch
 range toggle and a Shift+click nudge. M4e amends SPEC §6 to describe the
-shipped UI as it stands. M5 is in progress: M5a adds the per-deck 3-band EQ
-to the Mix-mode mixer column; the limiter, crossfader curves and settings
-screen follow. The project is governed by [`SPEC.md`](SPEC.md).
+shipped UI as it stands. M5 is in progress: M5a added the per-deck 3-band EQ
+to the Mix-mode mixer column; M5b adds the crossfader curve selector
+(linear / constant power / sharp cut) and the master soft-clip limiter with
+a CLIP light; the settings screen follows. The project is governed by
+[`SPEC.md`](SPEC.md).
 
 ![Trekker-NG mix mode - two decks with hot cues, loop controls, bar/BPM readouts, mixer column and per-deck VU meters](docs/ui-m4d.png)
 
@@ -30,7 +32,7 @@ screen follow. The project is governed by [`SPEC.md`](SPEC.md).
 | **M2** | Engine cleanup: rate smoothing, declick ramps, mixer extraction, unit tests | done |
 | **M3** | ImGui UI, one deck, track-format loader, waveforms (composite + per-stem lanes) | done |
 | **M4** | Second deck, crossfader, master section, hot cues, loops, beat display | done |
-| **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings | in progress (M5a) |
+| **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings | in progress (M5a, M5b) |
 | **M6** | Packaging: Windows build, Linux AppImage, docs, example tracks | planned |
 
 ## Features
@@ -41,11 +43,15 @@ screen follow. The project is governed by [`SPEC.md`](SPEC.md).
   rate smoothing (one-pole, 15 ms) so pitch moves glide instead of stepping.
 - **Click-free by construction** - 5 ms transport fade (play/pause), 2 ms
   crossfade on cue jumps while audible, 5 ms gain ramps on stem mutes.
-- **Master mixer stage** - atomic master gain + hard clamp, applied identically
-  to live output and offline renders (limiter arrives in M5b).
+- **Master mixer stage (M5b)** - atomic master gain + soft-clip limiter:
+  bit-exact below a 0.9 knee, a tanh curve above it that never passes +-1,
+  applied identically to live output and offline renders; the CLIP light in
+  the mixer column flashes when the knee engages. **Crossfader curves
+  (M5b)** - selectable linear / constant power (default) / sharp cut (full
+  volume until the last 5 % of the fader travel).
 - **3-band EQ (M5a)** - per-deck low/mid/high sliders side by side in the
   Mix-mode mixer column, Traktor style: center = flat, top = +6 dB, bottom =
-  kill, double-click resets. A square kill button under each band kills it
+  kill, right-click resets. A square kill button under each band kills it
   and lights up; clicking it again restores the previous level. The engine
   splits each
   deck through an LR4 crossover (250 Hz / 4 kHz) so kills are exact and flat
@@ -281,8 +287,8 @@ src/
   engine/            no UI dependencies; builds as static libtrekker_engine
     deck.{h,cpp}             4 stems, one playhead, smoothing + declick, loops
     interpolate.{h,cpp}      pure Hermite / linear interpolator
-    mixer.{h,cpp}            line/cross/master gains, per-deck EQ, equal-power
-                             crossfader curve, clamp
+    mixer.{h,cpp}            line/cross/master gains, per-deck EQ, selectable
+                             crossfader curve, soft-clip limiter
     eq.{h,cpp}               3-band EQ: LR4 band-split, Traktor kill/boost curve
     track_loader.{h,cpp}     folder/zip -> DeckData, meta.json, cue persistence
     audio_device.{h,cpp}     miniaudio device, realtime callback

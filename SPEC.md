@@ -93,7 +93,7 @@ Deck B: 4 stems ──(shared playhead, rate)──► stem gains ──► sum 
 
 ### 4.6 Mixer
 
-- Per-deck volume (line fader), crossfader (selectable curve: linear, constant-power, sharp-cut), master gain, soft limiter on the master to prevent clipping.
+- Per-deck volume (line fader), crossfader (selectable curve: linear, constant-power, sharp-cut - the cut curve stays full until the last 5 % of the fader travel), master gain, soft limiter on the master to prevent clipping (bit-exact below a 0.9 knee, smooth asymptote to +-1 above it; a CLIP light in the mixer column flashes when it engages).
 - 3-band EQ per deck (M5a): LR4 crossover band-split at 250 Hz / 4 kHz, Traktor-style thin vertical sliders side by side (center = 0 dB, top = +6 dB boost, bottom = kill) with a kill toggle square under each band (lit while killed; clicking again restores the previous level), one set per deck in the Mix-mode mixer column. The single-deck audio path (console, tests) bypasses it.
 
 ### 4.7 Realtime rules (non-negotiable)
