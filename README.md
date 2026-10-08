@@ -19,12 +19,13 @@ and pitch readouts as cyan 7-segment VFD displays (embedded DSEG7 font).
 M4d completes the cue/loop controls: full CUE set/preview/return behavior,
 8 hot cues, manual and quick loops with buttons and keys, a ±10/±16 pitch
 range toggle and a Shift+click nudge. M4e amends SPEC §6 to describe the
-shipped UI as it stands. M5 is in progress: M5a added the per-deck 3-band EQ
-to the Mix-mode mixer column; M5b adds the crossfader curve selector
-(linear / constant power / sharp cut) and the master soft-clip limiter with
-a CLIP light; M5c ships the settings screen (audio device, buffer size,
-pitch range, fader direction, boot mode, curve, master - persisted to
-`trekker-ng.json` next to the exe). The project is governed by
+shipped UI as it stands. M5 is complete in four steps: M5a added the
+per-deck 3-band EQ to the Mix-mode mixer column; M5b added the crossfader
+curve selector (linear / constant power / sharp cut) and the master
+soft-clip limiter with a CLIP light; M5c shipped the settings screen
+(audio device, buffer size, pitch range, fader direction, boot mode,
+curve, master - persisted to `trekker-ng.json` next to the exe); M5d is
+the polish pass (release zip at m5, docs). The project is governed by
 [`SPEC.md`](SPEC.md).
 
 ![Trekker-NG settings window over mix mode](docs/ui-m5c-settings.png)
@@ -37,7 +38,7 @@ pitch range, fader direction, boot mode, curve, master - persisted to
 | **M2** | Engine cleanup: rate smoothing, declick ramps, mixer extraction, unit tests | done |
 | **M3** | ImGui UI, one deck, track-format loader, waveforms (composite + per-stem lanes) | done |
 | **M4** | Second deck, crossfader, master section, hot cues, loops, beat display | done |
-| **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings | in progress (M5a, M5b, M5c) |
+| **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings | done (M5a, M5b, M5c, M5d) |
 | **M6** | Packaging: Windows build, Linux AppImage, docs, example tracks | planned |
 
 ## Features
@@ -232,12 +233,14 @@ dist\trekker-console.exe examples\magnat.zip --render out.wav --rate 0.93 --seco
 | `I` / `O` | set loop in / loop out at the playhead (active deck) |
 | `L` | toggle the loop; `Shift+L` exits and clears it |
 | `Alt+1` … `Alt+5` | quick loop of 1 / 2 / 4 / 8 / 16 beats from the playhead |
-| `M` | toggle Single / Mix mode (session only; always boots Single) |
+| `M` | toggle Single / Mix mode (persisted - next boot restores it) |
 | `Q` / `Esc` | quit |
 
 Click any waveform lane to seek; drag & drop a track folder or `.zip` anywhere
-to load. The vertical fader works like real DJ gear: **up = slower, down =
-faster** (the keyboard steps move the fader too), the button under the fader
+to load. The vertical fader is reversed like real DJ gear by default (**up =
+slower, down = faster**) - the direction is a setting (M5c), so a straight
+fader (up = faster) is one checkbox away in `[settings]`; the keyboard steps
+are direction-agnostic, the button under the fader
 toggles ±10/±16 %, and `Shift`+click on the fader nudges (bends to the
 clicked position, release snaps back). Load accepts a pasted path.
 
