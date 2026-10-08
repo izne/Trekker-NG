@@ -43,8 +43,8 @@ device restarts once at that rate.
 | loop `In` `Out` `On` `Exit` + `1`-`16` | manual loop control: `In`/`Out` set points at the playhead (lit when set), `On` toggles the loop (needs a valid pair), `Exit` clears it. The numbered buttons make a quick loop of that many beats starting at the playhead (needs a BPM in `meta.json`; near the track end the out point clamps to the end) |
 | `VU` meter | per-deck peak bar of that deck's own output: green, yellow above 0.7, red above 0.9 |
 | `1` `2` `3` `4` checkboxes | toggle that stem (colored as in `meta.json`) |
-| pitch fader | vertical, ±10 %, reversed like DJ gear: **up = slower, down = faster**; the button under the readout toggles the range **±10 % / ±16 %**. `Shift`+click on the fader is a jog-style **nudge**: pitch bends to the clicked position (below the handle = faster) while held, release snaps back |
-| time / bar / pitch | position / length, `bar 2.3 | 128.0 BPM` (bar.beat aligned to the beat grid via `first_beat_offset_ms`, plus the effective BPM), pitch % - all render as cyan 7-segment VFD readouts on a dark inset (DSEG7 font); text like `bar`, `BPM` and `+`/`%` keeps the regular UI font |
+| pitch fader | vertical, ±10 %, reversed like DJ gear: **up = slower, down = faster**; the button under the fader toggles the range **±10 % / ±16 %**. `Shift`+click on the fader is a jog-style **nudge**: pitch bends to the clicked position (below the handle = faster) while held, release snaps back |
+| time / bar / pitch | remaining time with a minus sign (`-02:33.75`, total - position) and pitch % next to it, `bar 2.3 | 128.0 BPM` below (bar.beat aligned to the beat grid via `first_beat_offset_ms`, plus the effective BPM) - all render as cyan 7-segment VFD readouts on a dark inset (DSEG7 font); text like `bar`, `BPM` and `+`/`%` keeps the regular UI font |
 | path box + `Load` | load from a typed path |
 
 ### Single and Mix mode
@@ -57,8 +57,12 @@ Mix mode shows:
 
 - **deck A** (left) and **deck B** (right), each with its own transport,
   pitch fader, VU meter and stem toggles,
-- a **mixer column** between them: A/B line faders, a crossfader (starts
-  centered) and the master gain,
+- a **mixer column** between them: A/B line faders, a per-deck **3-band EQ**
+  (three thin vertical sliders labeled `lo / mid / hi` side by side: center
+  = flat, top = +6 dB, bottom = kill; a square kill button under each band
+  toggles kill and lights up while killed; clicking it again restores the
+  level the band had before the kill. Double-click a slider resets
+  to flat), a crossfader (starts centered) and the master gain,
 - an **active deck** - the panel under the mouse, marked by its highlighted
   title. `Space`, the pitch keys, the pitch reset and the cue/loop keys below
   act on it,

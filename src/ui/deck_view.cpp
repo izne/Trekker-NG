@@ -258,12 +258,13 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
         ImGui::Spacing();
         const bool atEnd =
             deck.positionFrames() >= static_cast<double>(data->frames) - 1.0;
-        // Left block: buttons + time on the first line, beat/BPM under the
-        // buttons, hot cues and the loop row after that. Keeping the long
-        // text off the first line leaves the pitch fader and the VU meter
-        // inside the deck's column width, and the cue/loop rows inside this
-        // group use the dead space under the beat line - the deck child
-        // clips anything that flows after the fader/VU line (M4d lesson).
+        // Left block: buttons + remaining time and pitch % on the first
+        // line, bar.beat | BPM under the buttons, hot cues and the loop row
+        // after that. Keeping the long text off the first line leaves the
+        // pitch fader and the VU meter inside the deck's column width, and
+        // the cue/loop rows inside this group use the dead space under the
+        // bar line - the deck child clips anything that flows after the
+        // fader/VU line (M4d lesson).
         ImGui::BeginGroup();
         const char* playLabel = deck.playing() ? "Pause" : "Play";
         if (ImGui::Button(playLabel, ImVec2(80.0f, 0.0f))) {
@@ -299,18 +300,28 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
             cuePreviewing_ = false;
         }
         ImGui::SameLine();
-        char t1[32], t2[32];
+        // Remaining time + pitch % on the first row (user decision
+        // 2026-10-05): total - position with a CDJ-style minus sign
+        // (clamped at 0 inside formatTime), pitch in the freed space; the
+        // bar.beat + effective BPM row below appears when the track has a
+        // grid. The pitch state machine runs later in this function (the
+        // nudge needs the slider item), so this row shows last frame's
+        // value while dragging - a 16 ms lag, imperceptible.
         const double fs = static_cast<double>(std::max(data->sampleRate, 1u));
-        formatTime(deck.positionFrames() / fs, t1, sizeof(t1));
-        formatTime(static_cast<double>(data->frames) / fs, t2, sizeof(t2));
-        char timeBuf[80];
-        std::snprintf(timeBuf, sizeof(timeBuf), "%s / %s", t1, t2);
-        const VfdSeg timeSegs[] = {{timeBuf, true}};
-        vfdLine(timeSegs, 1);
+        const double posSec = deck.positionFrames() / fs;
+        const double totalSec = static_cast<double>(data->frames) / fs;
+        char remCore[24], remBuf[32];
+        formatTime(totalSec - posSec, remCore, sizeof(remCore));
+        std::snprintf(remBuf, sizeof(remBuf), "-%s", remCore);
+        char pitchBuf[32];
+        std::snprintf(pitchBuf, sizeof(pitchBuf), "%+.2f%%",
+                      nudging_ ? nudgeTarget_ : pitchPct_);
+        const VfdSeg timeSegs[] = {
+            {remBuf, true}, {"  ", false}, {pitchBuf, true}};
+        vfdLine(timeSegs, 3);
         if (data->bpm > 0.0f) {
             // M4d: the beat phase is aligned to the grid (first beat offset)
-            // and shown as bar.beat, DJ-style - plus the effective BPM.
-            const double posSec = deck.positionFrames() / fs;
+            // and shown as bar.beat with the effective BPM, DJ-style.
             const double beats =
                 std::max(0.0, posSec - data->firstBeatOffsetMs / 1000.0) *
                 static_cast<double>(data->bpm) * deck.rate() / 60.0;
@@ -439,7 +450,9 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
 
         // --- vertical pitch fader (SPEC §6), reversed like DJ gear: -------
         // top = slow, bottom = fast. The widget edits the inverted value, so
-        // dragging down raises the pitch; the readout shows the real pitch.
+        // dragging down raises the pitch; the % readout sits on the
+        // transport line next to the remaining time (user decision
+        // 2026-10-05 - it used to live under the fader).
         // M4d: Shift+click nudge (jog-style bend) + the range toggle button.
         ImGui::SameLine(0.0f, 16.0f);
         ImGui::BeginGroup();
@@ -485,11 +498,6 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
         } else {
             pitchPct_ = static_cast<float>((deck.rate() - 1.0) * 100.0); // idle: mirror
         }
-        const float shownPct = nudging_ ? nudgeTarget_ : pitchPct_;
-        char pitchBuf[32];
-        std::snprintf(pitchBuf, sizeof(pitchBuf), "%+.2f%%", shownPct);
-        const VfdSeg pitchSegs[] = {{pitchBuf, true}};
-        vfdLine(pitchSegs, 1);
 
         // Range toggle (SPEC §4.3, user decision: 2-state 10/16 for v1).
         char rangeLbl[16];

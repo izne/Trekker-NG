@@ -18,8 +18,9 @@ and pitch readouts as cyan 7-segment VFD displays (embedded DSEG7 font).
 M4d completes the cue/loop controls: full CUE set/preview/return behavior,
 8 hot cues, manual and quick loops with buttons and keys, a ±10/±16 pitch
 range toggle and a Shift+click nudge. M4e amends SPEC §6 to describe the
-shipped UI as it stands. Next: M5 (3-band EQ, limiter, crossfader curves,
-settings). The project is governed by [`SPEC.md`](SPEC.md).
+shipped UI as it stands. M5 is in progress: M5a adds the per-deck 3-band EQ
+to the Mix-mode mixer column; the limiter, crossfader curves and settings
+screen follow. The project is governed by [`SPEC.md`](SPEC.md).
 
 ![Trekker-NG mix mode - two decks with hot cues, loop controls, bar/BPM readouts, mixer column and per-deck VU meters](docs/ui-m4d.png)
 
@@ -29,7 +30,7 @@ settings). The project is governed by [`SPEC.md`](SPEC.md).
 | **M2** | Engine cleanup: rate smoothing, declick ramps, mixer extraction, unit tests | done |
 | **M3** | ImGui UI, one deck, track-format loader, waveforms (composite + per-stem lanes) | done |
 | **M4** | Second deck, crossfader, master section, hot cues, loops, beat display | done |
-| **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings | planned |
+| **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings | in progress (M5a) |
 | **M6** | Packaging: Windows build, Linux AppImage, docs, example tracks | planned |
 
 ## Features
@@ -41,7 +42,14 @@ settings). The project is governed by [`SPEC.md`](SPEC.md).
 - **Click-free by construction** - 5 ms transport fade (play/pause), 2 ms
   crossfade on cue jumps while audible, 5 ms gain ramps on stem mutes.
 - **Master mixer stage** - atomic master gain + hard clamp, applied identically
-  to live output and offline renders (limiter arrives in M5).
+  to live output and offline renders (limiter arrives in M5b).
+- **3-band EQ (M5a)** - per-deck low/mid/high sliders side by side in the
+  Mix-mode mixer column, Traktor style: center = flat, top = +6 dB, bottom =
+  kill, double-click resets. A square kill button under each band kills it
+  and lights up; clicking it again restores the previous level. The engine
+  splits each
+  deck through an LR4 crossover (250 Hz / 4 kHz) so kills are exact and flat
+  is transparent; the single-deck path (console, tests) bypasses the EQ.
 - **Input formats** - WAV, FLAC, MP3, OGG Vorbis (whatever miniaudio decodes);
   recommended exports are WAV or FLAC (MP3 delay/padding can misalign stems).
 - **Load from a folder or a zip** - loose files, or a zip with an enclosing
@@ -62,7 +70,7 @@ settings). The project is governed by [`SPEC.md`](SPEC.md).
   `I`/`O`/`L`/`Shift+L` keys, and quick loops of 1/2/4/8/16 beats from the
   playhead via buttons or `Alt+1`..`Alt+5` (needs a BPM; out clamps at the
   track end). Activation guards reject incomplete or inverted point pairs.
-- **Pitch range & nudge (M4d)** - a button under the readout toggles the
+- **Pitch range & nudge (M4d)** - a button under the fader toggles the
   fader range between ±10 % and ±16 % (the ±8 % step is deferred);
   `Shift`+click on the fader is a jog-style nudge that bends pitch to
   the clicked position while held and snaps back on release.
@@ -83,9 +91,10 @@ settings). The project is governed by [`SPEC.md`](SPEC.md).
 - **Per-deck VU meter** - a peak-hold bar per deck fed by the deck's own
   output (before the line fader/crossfader), green/yellow/red as it approaches
   and passes 0.7/0.9.
-- **VFD readouts (M4display)** - time, the bar.beat counter, effective BPM
-  and pitch render in a 7-segment font (DSEG7) on a dark inset, cyan like a
-  vacuum-fluorescent display; everything else keeps the regular UI font.
+- **VFD readouts (M4display)** - remaining time (countdown with minus sign),
+  pitch %, the bar.beat counter and effective BPM render in a 7-segment
+  font (DSEG7) on a dark inset, cyan like a vacuum-fluorescent display;
+  everything else keeps the regular UI font.
 - **Self-contained download** - `trekker-ng.exe` + `SDL2.dll` only (everything
   else, including the C++ runtime, is statically linked).
 
@@ -208,7 +217,7 @@ dist\trekker-console.exe examples\magnat.zip --render out.wav --rate 0.93 --seco
 
 Click any waveform lane to seek; drag & drop a track folder or `.zip` anywhere
 to load. The vertical fader works like real DJ gear: **up = slower, down =
-faster** (the keyboard steps move the fader too), the button under the readout
+faster** (the keyboard steps move the fader too), the button under the fader
 toggles ±10/±16 %, and `Shift`+click on the fader nudges (bends to the
 clicked position, release snaps back). Load accepts a pasted path.
 
@@ -272,7 +281,9 @@ src/
   engine/            no UI dependencies; builds as static libtrekker_engine
     deck.{h,cpp}             4 stems, one playhead, smoothing + declick, loops
     interpolate.{h,cpp}      pure Hermite / linear interpolator
-    mixer.{h,cpp}            line/cross/master gains, equal-power curve, clamp
+    mixer.{h,cpp}            line/cross/master gains, per-deck EQ, equal-power
+                             crossfader curve, clamp
+    eq.{h,cpp}               3-band EQ: LR4 band-split, Traktor kill/boost curve
     track_loader.{h,cpp}     folder/zip -> DeckData, meta.json, cue persistence
     audio_device.{h,cpp}     miniaudio device, realtime callback
   ui/                M3 ImGui + SDL2 front-end (main loop, deck view)

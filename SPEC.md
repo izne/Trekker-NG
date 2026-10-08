@@ -71,7 +71,7 @@ Deck B: 4 stems ──(shared playhead, rate)──► stem gains ──► sum 
 
 - **Varispeed only.** Rate change alters both tempo and pitch, with no time-stretching or pitch-preserving algorithm in v1.
 - Interpolation: **cubic Hermite (Catmull-Rom)** by default. Provide linear as a debug option. Interpolator is a pure function, unit tested.
-- Pitch range: **±10% / ±16%** in v1 (default ±10%, toggled under the readout); the ±8% option is deferred. Fader resolution at least 0.01%.
+- Pitch range: **±10% / ±16%** in v1 (default ±10%, toggled under the fader); the ±8% option is deferred. Fader resolution at least 0.01%.
 - **Rate smoothing:** rate changes are smoothed per sample or per block (one-pole or linear ramp, ~10 to 20 ms) to avoid zipper noise.
 - Display: current pitch in % (e.g. `+3.42%`) and effective BPM (`bpm * rate`).
 - Resolve a **reverse pitch fader direction** option (the vinyl convention is: up = faster is a setting, not a hardcoded assumption).
@@ -94,7 +94,7 @@ Deck B: 4 stems ──(shared playhead, rate)──► stem gains ──► sum 
 ### 4.6 Mixer
 
 - Per-deck volume (line fader), crossfader (selectable curve: linear, constant-power, sharp-cut), master gain, soft limiter on the master to prevent clipping.
-- Simple 3-band EQ per deck is a **stretch goal** (M5).
+- 3-band EQ per deck (M5a): LR4 crossover band-split at 250 Hz / 4 kHz, Traktor-style thin vertical sliders side by side (center = 0 dB, top = +6 dB boost, bottom = kill) with a kill toggle square under each band (lit while killed; clicking again restores the previous level), one set per deck in the Mix-mode mixer column. The single-deck audio path (console, tests) bypasses it.
 
 ### 4.7 Realtime rules (non-negotiable)
 
@@ -158,8 +158,9 @@ mytrack/
 - Per deck: track title, 4 stem toggle buttons (colored, lit when on),
   play/pause, CUE (set / hold-to-preview / return, §4.5), 8 hot cue buttons,
   loop controls (In/Out/On/Exit + 1/2/4/8/16-beat quick loops), vertical pitch
-  fader with a range toggle (v1: ±10 / ±16 %) and % readout, `bar N.M | BPM`
-  and time readouts, per-deck VU meter, load box + button; Shift+click the
+  fader with a range toggle (v1: ±10 / ±16 %), remaining-time and pitch
+  readouts plus a `bar N.M | BPM` counter, per-deck VU meter,
+  load box + button; Shift+click the
   fader to nudge.
 - **Waveform:** overview (summed stems plus per-stem lanes) with a playhead;
   pre-computed min/max peaks on load, click-to-seek. A stretch goal is a
@@ -186,6 +187,7 @@ trekker-ng/
     engine/            (no UI deps, builds as libtrekker_engine)
       deck.{h,cpp}
       interpolate.{h,cpp}
+      eq.{h,cpp}
       mixer.{h,cpp}
       track_loader.{h,cpp}
       audio_device.{h,cpp}

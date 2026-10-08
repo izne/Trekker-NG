@@ -14,6 +14,7 @@ endif()
 add_library(trekker_engine STATIC
   src/engine/interpolate.cpp
   src/engine/deck.cpp
+  src/engine/eq.cpp
   src/engine/mixer.cpp
   src/engine/track_loader.cpp
   src/engine/audio_device.cpp
@@ -33,6 +34,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   set_source_files_properties(
     src/engine/interpolate.cpp
     src/engine/deck.cpp
+    src/engine/eq.cpp
     src/engine/mixer.cpp
     src/engine/track_loader.cpp
     PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra"
@@ -104,6 +106,7 @@ if(TREKKER_BUILD_TESTS)
     tests/test_main.cpp
     tests/test_interpolate.cpp
     tests/test_deck.cpp
+    tests/test_eq.cpp
     tests/test_mixer.cpp
     tests/test_loader.cpp
   )
@@ -114,6 +117,7 @@ if(TREKKER_BUILD_TESTS)
       tests/test_main.cpp
       tests/test_interpolate.cpp
       tests/test_deck.cpp
+      tests/test_eq.cpp
       tests/test_mixer.cpp
       tests/test_loader.cpp
       PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra"

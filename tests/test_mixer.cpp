@@ -10,9 +10,10 @@
 
 namespace {
 
-// Runs two blocks and returns the steady-state gain of `channel` (0 = A,
-// 1 = B): block 1 ramps the internal gain from its previous value to the new
-// target, block 2 runs at the constant target. Input is unit DC on the
+// Runs the block until everything settles and returns the steady-state gain
+// of `channel` (0 = A, 1 = B): the first blocks ramp the mixer's internal
+// gain to the new target, and the M5a EQ crossover (LR4 at 250 Hz) needs a
+// few ms of DC before its output stops moving. Input is unit DC on the
 // measured channel and silence on the other, master gain is 1.
 float steadyGain(tng::Mixer& mixer, int deck, float deckBdc, float* outSample = nullptr) {
     const int frames = 32;
@@ -20,10 +21,9 @@ float steadyGain(tng::Mixer& mixer, int deck, float deckBdc, float* outSample = 
     std::vector<float> b(static_cast<size_t>(frames) * 2, deckBdc);
     std::vector<float> out(static_cast<size_t>(frames) * 2, 0.0f);
 
-    mixer.process(a.data(), b.data(), out.data(), frames); // ramp block
-    mixer.process(a.data(), b.data(), out.data(), frames); // steady block
+    for (int i = 0; i < 24; ++i) mixer.process(a.data(), b.data(), out.data(), frames);
     if (outSample != nullptr) *outSample = out[0];
-    return out[0]; // left channel of the steady block (block 2, frame 0)
+    return out[0]; // left channel of the last (settled) block, frame 0
 }
 
 } // namespace
@@ -121,8 +121,8 @@ TEST_CASE("mixer: fader moves ramp instead of stepping") {
     std::vector<float> a(static_cast<size_t>(frames) * 2, 1.0f);
     std::vector<float> b(static_cast<size_t>(frames) * 2, 0.0f); // B silent: out = A's gain
     std::vector<float> out(static_cast<size_t>(frames) * 2, 0.0f);
-    mixer.process(a.data(), b.data(), out.data(), frames);
-    mixer.process(a.data(), b.data(), out.data(), frames); // settled at full A
+    // Settle the gain ramp and the M5a EQ crossover before measuring.
+    for (int i = 0; i < 24; ++i) mixer.process(a.data(), b.data(), out.data(), frames);
     CHECK(out[0] == doctest::Approx(1.0f).epsilon(1e-4));
 
     mixer.setCrossfader(1.0f); // jump: A must ramp down across the block

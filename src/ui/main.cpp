@@ -133,6 +133,13 @@ int main(int argc, char** argv) {
     bool mixMode = false;
     int activeDeck = 0;   // deck the global keys target (hovered panel in Mix)
 
+    // UI-session memory: the EQ level a kill button had before it was
+    // pressed, so clicking a lit kill restores that level instead of flat
+    // (user decision 2026-10-05). UI thread only; default 0.5 = flat for
+    // the slider-dragged-to-0 edge case (no saved level yet).
+    float eqPreKill[kDeckCount][tng::Eq3::kBands] = {
+        {0.5f, 0.5f, 0.5f}, {0.5f, 0.5f, 0.5f}};
+
     // Single mode: deck A through the crossfader at exactly gain 1.0
     // (crossfader -1) -> loudness identical to M3; Mix: centered, both
     // decks audible. Deck B is registered with the device in both modes (a
@@ -197,6 +204,7 @@ int main(int argc, char** argv) {
 
     auto startDevice = [&](uint32_t rate) -> bool {
         std::string err;
+        mixer.setSampleRate(rate); // M5a: EQ smoothing runs in real time
         if (!device.init(&decks[0], &decks[1], &mixer, rate, kPeriodFrames, &err)) {
             setStatus("audio init failed: " + err, true);
             return false;
@@ -466,6 +474,100 @@ int main(int argc, char** argv) {
                                 "%.2f", ImGuiSliderFlags_AlwaysClamp);
             if (ImGui::IsItemActive()) mixer.setLineGain(1, lineB);
             ImGui::EndGroup();
+
+            // M5a: per-deck 3-band EQ (Mix mode only, SPEC §4.6). Traktor
+            // feel - flat in the center, top = +6 dB boost, bottom = kill
+            // (value semantics: 0.0 kill, 0.5 flat, 1.0 boost - Eq3::curve).
+            // UI v2: three thin vertical sliders side by side (low/mid/high)
+            // with an aligned label above each column and a kill toggle
+            // square below it (lit while killed); double-click a slider to
+            // snap it back to flat. NOTE: SameLine(x) takes an ABSOLUTE
+            // offset from the group start - a gap is SameLine(0.0f, gap).
+            ImGui::Spacing();
+            ImGui::TextDisabled("eq");
+            static const char* kBandLabel[3] = {"lo", "mid", "hi"}; // column tags
+            static const char* kBandName[3] = {"low", "mid", "high"};
+            constexpr float kSliderW = 16.0f;
+            constexpr float kSliderH = 100.0f;
+            constexpr float kGap = 8.0f; // label words need >=4 px between them
+            constexpr float kKill = 16.0f;
+            constexpr float kPitch = kSliderW + kGap; // column pitch
+            for (int d = 0; d < kDeckCount; ++d) {
+                ImGui::TextDisabled("%s", deckName(d));
+                ImGui::SameLine();
+                const float colX = ImGui::GetCursorPosX(); // first band column
+                const ImVec2 labelPos = ImGui::GetCursorScreenPos();
+                for (int b = 0; b < tng::Eq3::kBands; ++b) {
+                    const float lw =
+                        ImGui::CalcTextSize(kBandLabel[b]).x;
+                    ImGui::SetCursorScreenPos(
+                        ImVec2(labelPos.x + b * kPitch + (kSliderW - lw) * 0.5f,
+                               labelPos.y));
+                    ImGui::TextDisabled("%s", kBandLabel[b]);
+                }
+                ImGui::SetCursorPosX(colX);
+                for (int b = 0; b < tng::Eq3::kBands; ++b) {
+                    if (b > 0) ImGui::SameLine(0.0f, kGap);
+                    char id[16];
+                    std::snprintf(id, sizeof(id), "##eq%d%d", d, b);
+                    float knob = mixer.eqKnob(d, b);
+                    ImGui::VSliderFloat(id, ImVec2(kSliderW, kSliderH), &knob,
+                                        0.0f, 1.0f, "",
+                                        ImGuiSliderFlags_AlwaysClamp);
+                    if (ImGui::IsItemActive()) mixer.setEqKnob(d, b, knob);
+                    if (ImGui::IsItemHovered()) {
+                        const float gain = tng::Eq3::curve(knob);
+                        if (gain <= 0.001f) {
+                            ImGui::SetTooltip(
+                                "%s band: killed (double-click = flat)",
+                                kBandName[b]);
+                        } else {
+                            ImGui::SetTooltip(
+                                "%s band: %+.1f dB (double-click = flat)",
+                                kBandName[b],
+                                20.0 * std::log10(static_cast<double>(gain)));
+                        }
+                        if (ImGui::IsMouseDoubleClicked(0))
+                            mixer.setEqKnob(d, b, 0.5f);
+                    }
+                    // 0 dB center mark; overhangs the frame so it stays
+                    // visible even when the handle sits exactly on it.
+                    const ImVec2 s0 = ImGui::GetItemRectMin();
+                    const ImVec2 s1 = ImGui::GetItemRectMax();
+                    ImGui::GetWindowDrawList()->AddLine(
+                        ImVec2(s0.x - 4.0f, (s0.y + s1.y) * 0.5f),
+                        ImVec2(s1.x + 4.0f, (s0.y + s1.y) * 0.5f),
+                        IM_COL32(220, 220, 220, 220), 1.0f);
+                }
+                ImGui::SetCursorPosX(colX);
+                for (int b = 0; b < tng::Eq3::kBands; ++b) {
+                    if (b > 0) ImGui::SameLine(0.0f, kGap);
+                    const bool killed = mixer.eqKnob(d, b) <= 0.001f;
+                    if (killed) {
+                        ImGui::PushStyleColor(
+                            ImGuiCol_Button,
+                            ImVec4(0.95f, 0.62f, 0.05f, 1.0f));
+                        ImGui::PushStyleColor(
+                            ImGuiCol_ButtonHovered,
+                            ImVec4(1.00f, 0.72f, 0.15f, 1.0f));
+                    }
+                    char kid[16];
+                    std::snprintf(kid, sizeof(kid), "##kill%d%d", d, b);
+                    if (ImGui::Button(kid, ImVec2(kKill, kKill))) {
+                        if (killed) {
+                            mixer.setEqKnob(d, b, eqPreKill[d][b]); // restore
+                        } else {
+                            eqPreKill[d][b] = mixer.eqKnob(d, b);
+                            mixer.setEqKnob(d, b, 0.0f);
+                        }
+                    }
+                    if (killed) ImGui::PopStyleColor(2);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s band: %s", kBandName[b],
+                                          killed ? "killed (click = restore)"
+                                                 : "kill (click = silence)");
+                }
+            }
 
             ImGui::Spacing();
             ImGui::TextDisabled("crossfader");
