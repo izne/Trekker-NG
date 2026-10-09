@@ -19,6 +19,15 @@ struct Settings {
     bool bootMixMode = false;    // Single at boot unless Mix was saved
     int xfCurve = 1;             // Mixer::kXfConstantPower
     float masterGain = 0.7f;     // matches the Mixer default
+    // M5e: pixel size of the big VFD row (remaining time + pitch %). The
+    // bar/BPM row below stays at the fixed 15 px size.
+    float vfdTimePitchSize = 20.0f;
+    // M5f: window state, saved at exit / on the F11 toggle. Width default
+    // 1150 (was 1100): the extra room keeps the Mix-mode VU meters clear
+    // of the deck child's right edge.
+    int windowWidth = 1150;   // clamp 800..7680
+    int windowHeight = 660;   // clamp 480..4320
+    bool fullscreen = false;  // borderless (SDL fullscreen-desktop) at boot
 
     // JSON text (round-trip core). fromJson keeps the defaults for any
     // missing/invalid field and returns false only when the text is not

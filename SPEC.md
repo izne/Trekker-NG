@@ -150,8 +150,10 @@ mytrack/
 ## 6. UI requirements (v1, functional over pretty)
 
 - **Two modes:** Single (one deck, full width) is the boot default; `M` toggles
-  Mix (two deck panels side by side, crossfader and master section between
-  them). M5c: the last used mode is persisted and restored at the next boot
+  Mix (two deck panels side by side, mixer column between them: A/B line
+  faders flanked by the per-deck VU meters (M5g, each deck's meter beside its
+  own fader), EQ, crossfader, master). M5c: the last used mode is persisted
+  and restored at the next boot
   (the settings screen also has a "start in Mix mode" checkbox for it).
   v1 is exactly 2 decks.
 - In Mix mode the **active deck** is the panel under the mouse (highlighted
@@ -160,25 +162,50 @@ mytrack/
   play/pause, CUE (set / hold-to-preview / return, §4.5), 8 hot cue buttons,
   loop controls (In/Out/On/Exit + 1/2/4/8/16-beat quick loops), vertical pitch
   fader with a range toggle (v1: ±10 / ±16 %) and a persisted direction
-  (§4.3, M5c), remaining-time and pitch
-  readouts plus a `bar N.M | BPM` counter, per-deck VU meter,
-  load box + button; Shift+click the
-  fader to nudge.
+  (§4.3, M5c); M5e stacks the deck's bottom panel as a left column (transport,
+  the remaining-time + pitch VFD row below Play/CUE, the `bar N.M | BPM`
+  counter, hot cues, loops, stem toggles, `Load...`) and a right column (pitch
+  fader and nudge slider; M5g: the per-deck VU meter only in Single mode - in
+  Mix mode the meters stand in the mixer column, each deck's beside its own
+  A/B line fader) whose sliders are sized to the left column's height. The
+  time+pitch readout renders at a persisted size (M5e,
+  12-32 px, default 20). M5e: the nudge is a dedicated slider beside the pitch
+  fader - click above/below its center and hold for a momentary pitch bend
+  (direction follows the fader setting), release snaps back; M5f: the handle
+  jumps to the clicked value while held and snaps back to center on release;
+  M5g: the bend is an offset added to the pitch playing at the press
+  (minimum 0.5 %), so the handle shows that offset itself (center = the
+  current pitch) and release restores the pitch as it was at the press.
+  Shift+click on
+  the pitch fader no longer nudges. `Load...` opens a native zip file dialog
+  (folders still arrive via drag & drop or the CLI).
 - **Settings screen** (M5c, `[settings]` next to the mode button): audio
   device (miniaudio enumeration, default = system), buffer size, pitch
   range, reversed-pitch-fader checkbox, boot mode, crossfader curve, master
-  gain. Immediate apply + write-through save to `trekker-ng.json` next to
+  gain, and (M5e) the time+pitch readout size (12-32 px slider). Immediate
+  apply + write-through save to `trekker-ng.json` next to
   the exe (nlohmann JSON, portable-style, same stack as meta.json); device
   and buffer changes restart the audio device (brief dropout).
+- **Window state** (M5f): default 1150 x 660 (wide enough that the
+  Mix-mode VU meters are never clipped), resizable. The windowed size and
+  the fullscreen flag persist in the same `trekker-ng.json` and restore at
+  boot; `F11` toggles borderless fullscreen. The size is written at exit
+  and on toggle only - maximized/fullscreen sizes never overwrite the
+  windowed restore dimensions. Tooltips teach state, never click actions
+  (M5f/M5g): right-click resets are documented instead - EQ sliders reset to
+  flat (M5a), the crossfader centers (M5f) - and the EQ kill buttons carry no
+  tooltip at all (M5g; the band slider already names band and dB).
 - **Waveform:** overview (summed stems plus per-stem lanes) with a playhead;
   pre-computed min/max peaks on load, click-to-seek. A stretch goal is a
   zoomed scrolling waveform.
 - Keyboard shortcuts for everything (a laptop is the controller for v1):
   `Space` play/pause, `1`-`4`/`7`-`0` stems, pitch keys `=+-_[]` + `0` reset,
   `Shift+1`-`8` hot cues, `I`/`O`/`L`/`Shift+L` loop keys, `Alt+1`-`5` quick
-  loops, `M` mode, `Q`/`Esc` quit. A configurable map is nice but not required.
+  loops, `M` mode, `F11` fullscreen (M5f), `Q`/`Esc` quit. A configurable
+  map is nice but not required.
 - Drag and drop a track folder or zip anywhere on the window (routes to the
-  deck under the pointer); or a path box + Load per deck; or CLI arguments.
+  deck under the pointer); or the `Load...` native zip dialog per deck (M5e;
+  folders = drop/CLI only); or CLI arguments.
 
 ## 7. Project structure
 
@@ -217,7 +244,7 @@ trekker-ng/
 | **M2** | Engine library cleanup, rate smoothing, declick ramps, unit tests for the interpolator and deck. | The tests in §9 pass. |
 | **M3** | ImGui UI with one deck, the track format loader (`meta.json`, folder and zip), waveform overview. | A track loads by drag and drop. |
 | **M4** | Second deck, crossfader, master section, hot cues, loops, beat display. | You can do a full mix of two tracks. |
-| **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings (audio device, buffer size, pitch range), pitch-fader direction. | A friend can use it without you explaining. |
+| **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings (audio device, buffer size, pitch range, readout size), pitch-fader direction, nudge slider, native load dialog, window state (size + F11 fullscreen), mixer-column VU meters. | A friend can use it without you explaining. |
 | **M6** | Packaging: Windows build and Linux AppImage, docs, example tracks. | Ready for jamming with friends. |
 
 Work on **one milestone at a time**. Do not start the next one until the current one builds, runs, and is committed. Every milestone ends with a fresh runnable build in `dist/` for the user to test (see §10.2).

@@ -8,7 +8,7 @@ stem features of Traktor / djay, but for your own exported stems.
 Written in C++17. Windows first (MSYS2/MinGW64); the engine is kept portable
 so Linux/macOS can follow.
 
-**Current status: M4 of 6 complete** - M4a/M4b are in: the equal-power
+**Current status: M5 of 6 complete** - M4a/M4b are in: the equal-power
 crossfader with line/master gains and a two-deck audio path in the engine,
 plus frame-accurate loops and cue points (parse + persistence). M4c adds the
 two-deck **Mix** mode to the UI: two decks side by side with a mixer column,
@@ -19,18 +19,28 @@ and pitch readouts as cyan 7-segment VFD displays (embedded DSEG7 font).
 M4d completes the cue/loop controls: full CUE set/preview/return behavior,
 8 hot cues, manual and quick loops with buttons and keys, a ±10/±16 pitch
 range toggle and a Shift+click nudge. M4e amends SPEC §6 to describe the
-shipped UI as it stands. M5 is complete in four steps: M5a added the
+shipped UI as it stands. M5 is complete in seven steps: M5a added the
 per-deck 3-band EQ to the Mix-mode mixer column; M5b added the crossfader
 curve selector (linear / constant power / sharp cut) and the master
 soft-clip limiter with a CLIP light; M5c shipped the settings screen
 (audio device, buffer size, pitch range, fader direction, boot mode,
 curve, master - persisted to `trekker-ng.json` next to the exe); M5d is
-the polish pass (release zip at m5, docs). The project is governed by
+the polish pass (release zip at m5, docs); M5e is the UI/UX pass (bigger
+persisted time+pitch readout, dedicated nudge slider replacing the
+Shift+click, native zip dialog for `Load...`, mixer A/B alignment,
+split lower panel); M5f is the window pass (the nudge handle shows the
+bend and snaps back to center, right-click centers the crossfader,
+tooltips no longer describe click resets, and window size + F11
+fullscreen are persisted, default width 1150 px so the VU meters fit);
+M5g is the layout pass (the Mix-mode VU meters move into the mixer column
+beside their own A/B faders, the deck right column keeps pitch + nudge
+only, the nudge bend becomes an offset of the current pitch, and the EQ
+kill buttons lose their tooltips). The project is governed by
 [`SPEC.md`](SPEC.md).
 
-![Trekker-NG settings window over mix mode](docs/ui-m5c-settings.png)
+![Trekker-NG settings window over the single-deck view](docs/ui-m5e-settings.png)
 
-![Trekker-NG mix mode - two decks with hot cues, loop controls, bar/BPM readouts, mixer column and per-deck VU meters](docs/ui-m4d.png)
+![Trekker-NG mix mode - two decks with hot cues, loop controls, bar/BPM readouts, mixer column with VU meters beside the A/B faders, pitch/nudge sliders](docs/ui-m5e.png)
 
 | # | Milestone | Status |
 |---|-----------|--------|
@@ -38,7 +48,7 @@ the polish pass (release zip at m5, docs). The project is governed by
 | **M2** | Engine cleanup: rate smoothing, declick ramps, mixer extraction, unit tests | done |
 | **M3** | ImGui UI, one deck, track-format loader, waveforms (composite + per-stem lanes) | done |
 | **M4** | Second deck, crossfader, master section, hot cues, loops, beat display | done |
-| **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings | done (M5a, M5b, M5c, M5d) |
+| **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings | done (M5a, M5b, M5c, M5d, M5e, M5f, M5g) |
 | **M6** | Packaging: Windows build, Linux AppImage, docs, example tracks | planned |
 
 ## Features
@@ -82,40 +92,56 @@ the polish pass (release zip at m5, docs). The project is governed by
   `I`/`O`/`L`/`Shift+L` keys, and quick loops of 1/2/4/8/16 beats from the
   playhead via buttons or `Alt+1`..`Alt+5` (needs a BPM; out clamps at the
   track end). Activation guards reject incomplete or inverted point pairs.
-- **Pitch range & nudge (M4d)** - a button under the fader toggles the
+- **Pitch range & nudge (M4d/M5e/M5f/M5g)** - a button under the fader toggles the
   fader range between ±10 % and ±16 % (the ±8 % step is deferred; M5c
   persists the choice and mirrors it to both decks);
-  `Shift`+click on the fader is a jog-style nudge that bends pitch to
-  the clicked position while held and snaps back on release.
-- **Settings screen (M5c)** - `[settings]` next to the mode button opens a
+  a dedicated **nudge slider** (M5e, beside the pitch fader) bends pitch
+  while held - click above/below center, the bend follows the fader
+  direction, release snaps back (it replaced the M4d Shift+click
+  nudge). M5g: the bend is an offset added to the pitch playing at the
+  press, so the handle shows that offset (center = the current pitch).
+- **Settings screen (M5c/M5e)** - `[settings]` next to the mode button opens a
   window with the audio device (miniaudio enumeration, default = system),
   buffer size (64..1024, default 256), pitch range, a reversed-pitch-fader
-  checkbox (default on, DJ-style up = slower), boot mode, crossfader curve
-  and master gain. Every change applies immediately and saves write-through
+  checkbox (default on, DJ-style up = slower), boot mode, crossfader curve,
+  master gain and the time+pitch readout size (12..32 px, M5e). Every change
+  applies immediately and saves write-through
   to `trekker-ng.json` next to the exe (nlohmann JSON, same stack as
-  meta.json; missing or corrupt file = defaults); device and buffer changes
-  restart the audio device (brief dropout).
+   meta.json; missing or corrupt file = defaults); device and buffer changes
+   restart the audio device (brief dropout).
+- **Window state (M5f)** - default 1150 × 660 (wide enough that the Mix-mode
+  VU meters are never clipped); resize the window and the size is restored
+  at the next boot, `F11` toggles borderless fullscreen and that flag is
+  persisted too. Tooltips only teach state - the right-click resets
+  (EQ to flat, crossfader to center) are documented here instead, and the
+  EQ kill buttons have no tooltip at all (M5g).
 - **Mix mode (M4c)** - `M` toggles Single / Mix: Mix shows
-  deck A and deck B side by side with a mixer column (A/B line faders,
-  crossfader, master), and the deck under the mouse is the *active* deck the
+  deck A and deck B side by side with a mixer column (A/B line faders
+  flanked by the per-deck VU meters - M5g, each deck's meter beside its own
+  fader - crossfader, master; right-click the crossfader to center it), and
+  the deck under the mouse is the *active* deck the
   global keys target (its title is highlighted). Drop or Load routes to the
   deck under the pointer. M5c: the last used mode is persisted and restored
   at the next boot.
 - **Offline render mode** - render to WAV without a soundcard (`--render`),
   used for tests and automation.
 - **ImGui UI with drag & drop** - drop a track folder or `.zip` anywhere on
-  the window (or paste a path and press Load); the track hot-swaps into the
+  the window, or press `Load...` and pick a zip in the native file dialog
+  (M5e); the track hot-swaps into the
   running audio engine without a click or a restart.
 - **Waveforms** - the composite (mixed) waveform on top plus four per-stem
   lanes below it, each in its stem color and dimmed while muted; all lanes are
   precomputed min/max peaks, share the playhead, and click-to-seek.
 - **Per-deck VU meter** - a peak-hold bar per deck fed by the deck's own
   output (before the line fader/crossfader), green/yellow/red as it approaches
-  and passes 0.7/0.9.
+  and passes 0.7/0.9. Location depends on the mode (M5g): in the deck's
+  right column in Single mode, in the mixer column beside the deck's own
+  A/B line fader in Mix mode.
 - **VFD readouts (M4display)** - remaining time (countdown with minus sign),
   pitch %, the bar.beat counter and effective BPM render in a 7-segment
   font (DSEG7) on a dark inset, cyan like a vacuum-fluorescent display;
-  everything else keeps the regular UI font.
+  everything else keeps the regular UI font. The big time+pitch row's size
+  is a setting (M5e, 12..32 px, default 20).
 - **Self-contained download** - `trekker-ng.exe` + `SDL2.dll` only (everything
   else, including the C++ runtime, is statically linked).
 
@@ -234,6 +260,7 @@ dist\trekker-console.exe examples\magnat.zip --render out.wav --rate 0.93 --seco
 | `L` | toggle the loop; `Shift+L` exits and clears it |
 | `Alt+1` … `Alt+5` | quick loop of 1 / 2 / 4 / 8 / 16 beats from the playhead |
 | `M` | toggle Single / Mix mode (persisted - next boot restores it) |
+| `F11` | toggle fullscreen (borderless; persisted - next boot restores it) |
 | `Q` / `Esc` | quit |
 
 Click any waveform lane to seek; drag & drop a track folder or `.zip` anywhere
@@ -241,8 +268,11 @@ to load. The vertical fader is reversed like real DJ gear by default (**up =
 slower, down = faster**) - the direction is a setting (M5c), so a straight
 fader (up = faster) is one checkbox away in `[settings]`; the keyboard steps
 are direction-agnostic, the button under the fader
-toggles ±10/±16 %, and `Shift`+click on the fader nudges (bends to the
-clicked position, release snaps back). Load accepts a pasted path.
+toggles ±10/±16 %, and the nudge slider beside the fader bends pitch while
+held (click above/below center: the bend offsets the pitch playing at the
+press, the handle shows that offset, release snaps back; M5e/M5f/M5g).
+`Load...` opens
+the native zip file dialog (folders via drag & drop or the CLI).
 
 In Mix mode the transport and pitch keys follow the **active deck** (the panel
 under the mouse), as do the hot-cue and loop keys, `1`-`4` toggle deck A's
@@ -307,7 +337,8 @@ src/
     mixer.{h,cpp}            line/cross/master gains, per-deck EQ, selectable
                              crossfader curve, soft-clip limiter
     eq.{h,cpp}               3-band EQ: LR4 band-split, Traktor kill/boost curve
-    settings.{h,cpp}         trekker-ng.json load/save (M5c), clamped fields
+    settings.{h,cpp}         trekker-ng.json load/save (M5c, M5e fields),
+                             clamped fields
     track_loader.{h,cpp}     folder/zip -> DeckData, meta.json, cue persistence
     audio_device.{h,cpp}     miniaudio device + playback-device enumeration
   ui/                M3 ImGui + SDL2 front-end (main loop, deck view)

@@ -15,6 +15,10 @@ TEST_CASE("settings: defaults") {
     CHECK(!s.bootMixMode);
     CHECK(s.xfCurve == 1); // constant power
     CHECK(s.masterGain == doctest::Approx(0.7f));
+    CHECK(s.vfdTimePitchSize == doctest::Approx(20.0f)); // M5e big readout
+    CHECK(s.windowWidth == 1150);  // M5f: VU meters clear at this width
+    CHECK(s.windowHeight == 660);
+    CHECK(!s.fullscreen); // windowed by default
 }
 
 TEST_CASE("settings: json round-trip") {
@@ -26,6 +30,10 @@ TEST_CASE("settings: json round-trip") {
     a.bootMixMode = true;
     a.xfCurve = 2; // sharp cut
     a.masterGain = 0.85f;
+    a.vfdTimePitchSize = 26.0f;
+    a.windowWidth = 1920;
+    a.windowHeight = 1080;
+    a.fullscreen = true;
 
     tng::Settings b;
     REQUIRE(b.fromJson(a.toJson()));
@@ -36,6 +44,10 @@ TEST_CASE("settings: json round-trip") {
     CHECK(b.bootMixMode == a.bootMixMode);
     CHECK(b.xfCurve == a.xfCurve);
     CHECK(b.masterGain == doctest::Approx(a.masterGain));
+    CHECK(b.vfdTimePitchSize == doctest::Approx(a.vfdTimePitchSize));
+    CHECK(b.windowWidth == a.windowWidth);   // M5f window state
+    CHECK(b.windowHeight == a.windowHeight);
+    CHECK(b.fullscreen == a.fullscreen);
 }
 
 TEST_CASE("settings: corrupt or empty text keeps defaults") {
@@ -63,6 +75,23 @@ TEST_CASE("settings: out-of-range values clamp on load") {
     CHECK(lo.pitchRangePct == 10.0f);
     CHECK(lo.xfCurve == 0);
     CHECK(lo.masterGain == doctest::Approx(0.0f));
+
+    tng::Settings sz;
+    REQUIRE(sz.fromJson(R"({"vfdTimePitchSize": 96.0})"));
+    CHECK(sz.vfdTimePitchSize == doctest::Approx(32.0f));
+    tng::Settings sz2;
+    REQUIRE(sz2.fromJson(R"({"vfdTimePitchSize": 4.0})"));
+    CHECK(sz2.vfdTimePitchSize == doctest::Approx(12.0f));
+
+    // M5f: window dimensions clamp into the usable screen range.
+    tng::Settings w;
+    REQUIRE(w.fromJson(R"({"windowWidth": 100, "windowHeight": 10})"));
+    CHECK(w.windowWidth == 800);
+    CHECK(w.windowHeight == 480);
+    tng::Settings w2;
+    REQUIRE(w2.fromJson(R"({"windowWidth": 99999, "windowHeight": 99999})"));
+    CHECK(w2.windowWidth == 7680);
+    CHECK(w2.windowHeight == 4320);
 }
 
 TEST_CASE("settings: missing fields keep per-field defaults") {

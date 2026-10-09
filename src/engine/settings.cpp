@@ -26,6 +26,12 @@ void sanitize(Settings& s) {
     if (s.xfCurve > 2) s.xfCurve = 2;
     if (s.masterGain < 0.0f) s.masterGain = 0.0f;
     if (s.masterGain > 1.0f) s.masterGain = 1.0f;
+    if (s.vfdTimePitchSize < 12.0f) s.vfdTimePitchSize = 12.0f;
+    if (s.vfdTimePitchSize > 32.0f) s.vfdTimePitchSize = 32.0f;
+    if (s.windowWidth < 800) s.windowWidth = 800;
+    if (s.windowWidth > 7680) s.windowWidth = 7680;
+    if (s.windowHeight < 480) s.windowHeight = 480;
+    if (s.windowHeight > 4320) s.windowHeight = 4320;
 }
 
 } // namespace
@@ -41,6 +47,10 @@ std::string Settings::toJson() const {
     j["bootMixMode"] = s.bootMixMode;
     j["xfCurve"] = s.xfCurve;
     j["masterGain"] = s.masterGain;
+    j["vfdTimePitchSize"] = s.vfdTimePitchSize;
+    j["windowWidth"] = s.windowWidth;
+    j["windowHeight"] = s.windowHeight;
+    j["fullscreen"] = s.fullscreen;
     return j.dump(2) + "\n";
 }
 
@@ -59,6 +69,10 @@ bool Settings::fromJson(const std::string& text) {
     bootMixMode = j.value("bootMixMode", bootMixMode);
     xfCurve = j.value("xfCurve", xfCurve);
     masterGain = j.value("masterGain", masterGain);
+    vfdTimePitchSize = j.value("vfdTimePitchSize", vfdTimePitchSize);
+    windowWidth = j.value("windowWidth", windowWidth);
+    windowHeight = j.value("windowHeight", windowHeight);
+    fullscreen = j.value("fullscreen", fullscreen);
     sanitize(*this);
     return true;
 }

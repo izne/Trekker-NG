@@ -16,6 +16,7 @@
 
 #include "SDL.h"
 #include "SDL_opengl.h"
+#include "SDL_syswm.h" // M5e: HWND of our window for the Load... dialog owner
 #include "imgui.h"
 #include "imgui_impl_opengl3.h"
 #include "imgui_impl_sdl2.h"
@@ -78,8 +79,24 @@ int main(int argc, char** argv) {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
+    // M5c: user settings, loaded from trekker-ng.json next to the exe
+    // (portable-style, same nlohmann JSON stack as meta.json / cue files).
+    // Missing or corrupt file = defaults (Settings::load keeps them).
+    // M5f: loaded before the window exists - the saved windowed size and
+    // fullscreen flag seed SDL_CreateWindow below.
+    tng::Settings settings;
+    std::filesystem::path settingsPath;
+    {
+        char* base = SDL_GetBasePath();
+        settingsPath = std::filesystem::u8path(base ? base : "./");
+        SDL_free(base);
+        settingsPath /= "trekker-ng.json";
+        settings.load(settingsPath);
+    }
+
     SDL_Window* window = SDL_CreateWindow(
-        "Trekker-NG", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1100, 660,
+        "Trekker-NG", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        settings.windowWidth, settings.windowHeight,
         SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
     if (!window) {
         showError(SDL_GetError());
@@ -94,6 +111,11 @@ int main(int argc, char** argv) {
         return 1;
     }
     SDL_GL_SetSwapInterval(1);
+
+    // M5f: restore borderless fullscreen from the previous session (the
+    // windowed size above stays the restore target inside SDL).
+    if (settings.fullscreen)
+        SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -123,18 +145,6 @@ int main(int argc, char** argv) {
     ImGui_ImplSDL2_InitForOpenGL(window, glctx);
     ImGui_ImplOpenGL3_Init("#version 130");
 
-    // M5c: user settings, loaded from trekker-ng.json next to the exe
-    // (portable-style, same nlohmann JSON stack as meta.json / cue files).
-    // Missing or corrupt file = defaults (Settings::load keeps them).
-    tng::Settings settings;
-    std::filesystem::path settingsPath;
-    {
-        char* base = SDL_GetBasePath();
-        settingsPath = std::filesystem::u8path(base ? base : "./");
-        SDL_free(base);
-        settingsPath /= "trekker-ng.json";
-        settings.load(settingsPath);
-    }
     bool showSettings = false;
     std::vector<std::string> deviceNames; // filled lazily by the settings window
     bool deviceNamesLoaded = false;
@@ -146,6 +156,17 @@ int main(int argc, char** argv) {
     tng::AudioDevice device;
     bool deviceUp = false;
     uint32_t devRate = 0;
+
+#ifdef _WIN32
+    // M5e: the HWND both deck views use to parent their Load... zip dialog.
+    {
+        SDL_SysWMinfo wmi;
+        SDL_VERSION(&wmi.version);
+        if (SDL_GetWindowWMInfo(window, &wmi)) {
+            for (tui::DeckView& v : views) v.setNativeHwnd(wmi.info.win.window);
+        }
+    }
+#endif
 
     // M5c: the boot mode is a persisted setting (the M toggle writes it
     // back on every flip, so the next boot starts where you left off).
@@ -164,6 +185,10 @@ int main(int argc, char** argv) {
     // the mixer's one-shot flag; ~0.5 s at 60 fps).
     int uiClipFrames = 0;
 
+    // M5g: smoothed VU levels for the mixer-column meters (Mix mode):
+    // same peak-hold + per-frame fall the deck views use for their bars.
+    float vuLevel[kDeckCount] = {0.0f, 0.0f};
+
     // Single mode: deck A through the crossfader at exactly gain 1.0
     // (crossfader -1) -> loudness identical to M3; Mix: centered, both
     // decks audible. Deck B is registered with the device in both modes (a
@@ -175,9 +200,10 @@ int main(int argc, char** argv) {
     for (int i = 0; i < kDeckCount; ++i) {
         views[i].setPitchRange(decks[i], settings.pitchRangePct);
         views[i].setPitchReversed(settings.pitchReversed);
+        views[i].setReadoutSize(settings.vfdTimePitchSize); // M5e
     }
 
-    std::string status = "drop a track folder or .zip, or paste a path";
+    std::string status = "drop a track folder or .zip, or use Load...";
     bool statusError = false;
     std::array<std::optional<std::future<tng::LoadResult>>, kDeckCount> loading;
     // M4d: the path each deck is currently loading/loaded from - threaded to
@@ -447,6 +473,17 @@ int main(int argc, char** argv) {
                     case SDLK_q: case SDLK_ESCAPE:
                         running = false;
                         break;
+                    case SDLK_F11: {
+                        // M5f: borderless fullscreen toggle, persisted so
+                        // the next boot restores the state.
+                        const bool wasFs =
+                            (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
+                        SDL_SetWindowFullscreen(
+                            window, wasFs ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
+                        settings.fullscreen = !wasFs;
+                        saveSettings();
+                        break;
+                    }
                     default: break;
                 }
             } else if (e.type == SDL_WINDOWEVENT &&
@@ -454,6 +491,16 @@ int main(int argc, char** argv) {
                 // M4d: a nudge must not survive alt-tab (the mouse-up event
                 // never arrives); restore the base pitch on both decks.
                 for (int i = 0; i < kDeckCount; ++i) views[i].cancelNudge(decks[i]);
+            } else if (e.type == SDL_WINDOWEVENT &&
+                       e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                // M5f: remember the windowed size in memory (persisted at
+                // exit / F11). Skip fullscreen and maximized - their sizes
+                // must never overwrite the restore dimensions.
+                const Uint32 fl = SDL_GetWindowFlags(window);
+                if (!(fl & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_MAXIMIZED))) {
+                    settings.windowWidth = e.window.data1;
+                    settings.windowHeight = e.window.data2;
+                }
             } else if (e.type == SDL_TEXTINPUT && !io.WantTextInput) {
                 // Printable keys via their produced character, so every layout
                 // works (US "=+-_[]0", German "+ -" keys, German Shift+0 "=").
@@ -505,7 +552,7 @@ int main(int argc, char** argv) {
 
             ImGui::BeginChild("deckA", ImVec2(panelW, availH), ImGuiChildFlags_None,
                               childFlags);
-            if (const char* p = views[0].draw(decks[0], activeDeck == 0)) loadPath[0] = p;
+            if (const char* p = views[0].draw(decks[0], activeDeck == 0, false)) loadPath[0] = p;
             const ImVec2 a0 = ImGui::GetWindowPos();
             const ImVec2 a1(a0.x + ImGui::GetWindowSize().x, a0.y + ImGui::GetWindowSize().y);
             ImGui::EndChild();
@@ -514,21 +561,50 @@ int main(int argc, char** argv) {
             // --- mixer column: line faders, crossfader, master (SPEC §4.6) ---
             ImGui::BeginGroup();
             ImGui::TextDisabled("mixer");
-            ImGui::BeginGroup();
+            // M5e: A/B aligned explicitly. M5g: the deck VU meters moved
+            // into this column - deck A's bar sits left of fader A, deck
+            // B's right of fader B (each meter shows the deck its fader
+            // controls), both at the fader row: same top, same height.
+            // The A/B block therefore starts kVuW + gap in from the group
+            // edge; everything below still starts at the group edge.
+            constexpr float kLineSliderW = 38.0f;
+            constexpr float kLineSliderH = 100.0f;
+            constexpr float kVuW = 22.0f;
+            const float vuGap = 4.0f;
+            const float abGap = ImGui::GetStyle().ItemSpacing.x;
+            const ImVec2 abTop = ImGui::GetCursorScreenPos(); // group left edge
+            const float labelH = ImGui::GetTextLineHeightWithSpacing();
+            const ImVec2 sliderTop(abTop.x + kVuW + vuGap, abTop.y + labelH);
+
+            for (int d = 0; d < kDeckCount; ++d) {
+                const float peak = std::min(1.0f, decks[d].blockPeak());
+                vuLevel[d] = std::max(peak, vuLevel[d] * 0.88f);
+                const float vx = (d == 0) ? abTop.x
+                                          : sliderTop.x + kLineSliderW + abGap +
+                                                kLineSliderW + vuGap;
+                tui::drawVuBar(ImGui::GetWindowDrawList(), vx, sliderTop.y,
+                               kVuW, kLineSliderH, vuLevel[d]);
+            }
+
+            ImGui::SetCursorScreenPos(ImVec2(sliderTop.x, abTop.y));
             ImGui::TextDisabled("A");
+            ImGui::SetCursorScreenPos(sliderTop);
             float lineA = mixer.lineGain(0);
-            ImGui::VSliderFloat("##lineA", ImVec2(38.0f, 100.0f), &lineA, 0.0f, 1.0f,
-                                "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            ImGui::VSliderFloat("##lineA", ImVec2(kLineSliderW, kLineSliderH), &lineA,
+                                0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
             if (ImGui::IsItemActive()) mixer.setLineGain(0, lineA);
-            ImGui::EndGroup();
-            ImGui::SameLine();
-            ImGui::BeginGroup();
+
+            const ImVec2 bTop(sliderTop.x + kLineSliderW + abGap, abTop.y);
+            ImGui::SetCursorScreenPos(bTop);
             ImGui::TextDisabled("B");
+            ImGui::SetCursorScreenPos(ImVec2(bTop.x, sliderTop.y));
             float lineB = mixer.lineGain(1);
-            ImGui::VSliderFloat("##lineB", ImVec2(38.0f, 100.0f), &lineB, 0.0f, 1.0f,
-                                "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            ImGui::VSliderFloat("##lineB", ImVec2(kLineSliderW, kLineSliderH), &lineB,
+                                0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
             if (ImGui::IsItemActive()) mixer.setLineGain(1, lineB);
-            ImGui::EndGroup();
+
+            ImGui::SetCursorScreenPos(
+                ImVec2(abTop.x, sliderTop.y + kLineSliderH + ImGui::GetStyle().ItemSpacing.y));
 
             // M5a: per-deck 3-band EQ (Mix mode only, SPEC §4.6). Traktor
             // feel - flat in the center, top = +6 dB boost, bottom = kill
@@ -576,14 +652,13 @@ int main(int argc, char** argv) {
                         mixer.setEqKnob(d, b, 0.5f); // right-click = flat
                     if (ImGui::IsItemHovered()) {
                         const float gain = tng::Eq3::curve(knob);
+                        // M5f: the tooltip only names the state - the
+                        // right-click reset is documented, not shown here.
                         if (gain <= 0.001f) {
-                            ImGui::SetTooltip(
-                                "%s band: killed (right-click = flat)",
-                                kBandName[b]);
+                            ImGui::SetTooltip("%s band: killed", kBandName[b]);
                         } else {
                             ImGui::SetTooltip(
-                                "%s band: %+.1f dB (right-click = flat)",
-                                kBandName[b],
+                                "%s band: %+.1f dB", kBandName[b],
                                 20.0 * std::log10(static_cast<double>(gain)));
                         }
                     }
@@ -619,10 +694,8 @@ int main(int argc, char** argv) {
                         }
                     }
                     if (killed) ImGui::PopStyleColor(2);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("%s band: %s", kBandName[b],
-                                          killed ? "killed (click = restore)"
-                                                 : "kill (click = silence)");
+                    // M5g: no tooltip - the band slider's own tooltip
+                    // already reports the killed/normal state.
                 }
             }
 
@@ -633,6 +706,12 @@ int main(int argc, char** argv) {
             ImGui::SliderFloat("##xf", &xf, -1.0f, 1.0f, "%.2f",
                                ImGuiSliderFlags_AlwaysClamp);
             if (ImGui::IsItemActive()) mixer.setCrossfader(xf);
+            // M5f: right-click centers the crossfader (like the EQ sliders
+            // reset to flat); taught in the docs, no tooltip.
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                xf = 0.0f;
+                mixer.setCrossfader(0.0f);
+            }
 
             // M5b: crossfader curve selector. M5c: persisted (written on
             // click, next boot restores it).
@@ -683,7 +762,7 @@ int main(int argc, char** argv) {
             ImGui::SameLine();
             ImGui::BeginChild("deckB", ImVec2(panelW, availH), ImGuiChildFlags_None,
                               childFlags);
-            if (const char* p = views[1].draw(decks[1], activeDeck == 1)) loadPath[1] = p;
+            if (const char* p = views[1].draw(decks[1], activeDeck == 1, false)) loadPath[1] = p;
             const ImVec2 b0 = ImGui::GetWindowPos();
             const ImVec2 b1(b0.x + ImGui::GetWindowSize().x, b0.y + ImGui::GetWindowSize().y);
             ImGui::EndChild();
@@ -696,7 +775,7 @@ int main(int argc, char** argv) {
             }
         } else {
             activeDeck = 0;
-            if (const char* p = views[0].draw(decks[0], false)) loadPath[0] = p;
+            if (const char* p = views[0].draw(decks[0], false, true)) loadPath[0] = p;
         }
 
         for (int i = 0; i < kDeckCount; ++i) {
@@ -732,7 +811,7 @@ int main(int argc, char** argv) {
             "+/- pitch (0 = reset) | M single/mix | Q / Esc quit | drop on a deck");
         ImGui::TextDisabled(
             "Shift+1-8 hot cue (active deck) | I / O loop in/out, L toggle, Shift+L exit, "
-            "Alt+1-5 quick loop | Shift+click pitch fader = nudge (release snaps back)");
+            "Alt+1-5 quick loop | nudge slider = hold for pitch bend (release snaps back)");
         ImGui::End();
 
         // --- M5c settings window (SPEC §4.3/§6): --------------------------
@@ -813,6 +892,17 @@ int main(int argc, char** argv) {
                 if (ImGui::Checkbox("start in Mix mode", &settings.bootMixMode)) {
                     saveSettings();
                 }
+                // M5e: size of the big VFD row (remaining time + pitch %);
+                // applies live to both decks, saved on release.
+                ImGui::TextDisabled("time + pitch readout size");
+                float rs = settings.vfdTimePitchSize;
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                if (ImGui::SliderFloat("##rs", &rs, 12.0f, 32.0f, "%.0f px",
+                                       ImGuiSliderFlags_AlwaysClamp)) {
+                    settings.vfdTimePitchSize = rs;
+                    for (int i = 0; i < kDeckCount; ++i) views[i].setReadoutSize(rs);
+                }
+                if (ImGui::IsItemDeactivatedAfterEdit()) saveSettings();
                 ImGui::TextDisabled("crossfader curve");
                 for (int c = 0; c < 3; ++c) {
                     if (c > 0) ImGui::SameLine(0.0f, 4.0f);
@@ -851,6 +941,20 @@ int main(int argc, char** argv) {
     ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext();
     SDL_GL_DeleteContext(glctx);
+    // M5f: persist the window state. Size only in windowed (non-maximized)
+    // state so a fullscreen/maximized session never overwrites the
+    // dimensions the next windowed boot restores.
+    {
+        const Uint32 fl = SDL_GetWindowFlags(window);
+        settings.fullscreen = (fl & SDL_WINDOW_FULLSCREEN) != 0;
+        if (!settings.fullscreen && !(fl & SDL_WINDOW_MAXIMIZED)) {
+            int w = 0, h = 0;
+            SDL_GetWindowSize(window, &w, &h);
+            settings.windowWidth = w;
+            settings.windowHeight = h;
+        }
+        saveSettings();
+    }
     SDL_DestroyWindow(window);
     SDL_Quit();
     return 0;

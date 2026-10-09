@@ -85,7 +85,8 @@ add_executable(trekker-ng
   src/ui/main.cpp
   src/ui/deck_view.cpp
 )
-target_link_libraries(trekker-ng PRIVATE trekker_engine imgui ole32 opengl32)
+  # comdlg32: GetOpenFileNameW zip picker for the Load... button (M5e).
+  target_link_libraries(trekker-ng PRIVATE trekker_engine imgui ole32 opengl32 comdlg32)
 if(MINGW)
   # -static covers the driver's implicit winpthread/libstdc++ (no extra DLLs);
   # SDL2 stays a DLL - its import lib is referenced by full path above.

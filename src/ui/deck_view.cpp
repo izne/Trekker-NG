@@ -7,6 +7,14 @@
 #include <cmath>
 #include <cstdio>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN // also pulls NOMINMAX (std::min/max stay intact)
+#endif
+#include <windows.h>
+#include <commdlg.h> // M5e: GetOpenFileNameW zip picker for the Load button
+#endif
+
 namespace tui {
 
 namespace {
@@ -34,15 +42,19 @@ uint32_t stemColor(uint32_t color, bool on) {
 // One dark inset box with mixed-font segments: DSEG7 cyan numbers (the
 // default font is merged into vfdFont, so '+', '%', '/' fall back to it
 // automatically) next to plain-font words like "beat"/"BPM".
+// M5e: `size` overrides the DSEG segment size (0 = the standard 15 px);
+// ImGui 1.92 rasterizes glyphs on demand, so any size renders crisp from
+// the single loaded font. Word segments keep the regular font size.
 struct VfdSeg {
     const char* text;
     bool dseg;
 };
 
-void vfdLine(const VfdSeg* segs, int count) {
+void vfdLine(const VfdSeg* segs, int count, float size = 0.0f) {
     static const ImU32 kInset = IM_COL32(8, 12, 14, 255);
     static const ImU32 kCyan = IM_COL32(96, 244, 224, 255);
     static const ImU32 kWord = IM_COL32(170, 178, 186, 255);
+    const float dsegSize = size > 0.0f ? size : kVfdFontSize;
     const float padX = 4.0f, padY = 2.0f;
     if (count > 8) count = 8;
     float widths[8], heights[8];
@@ -50,7 +62,7 @@ void vfdLine(const VfdSeg* segs, int count) {
     for (int i = 0; i < count; ++i) {
         ImVec2 ts;
         if (segs[i].dseg && vfdFont) {
-            ImGui::PushFont(vfdFont, kVfdFontSize);
+            ImGui::PushFont(vfdFont, dsegSize);
             ts = ImGui::CalcTextSize(segs[i].text);
             ImGui::PopFont();
         } else {
@@ -69,7 +81,7 @@ void vfdLine(const VfdSeg* segs, int count) {
     for (int i = 0; i < count; ++i) {
         const float y = pos.y + padY + (maxH - heights[i]) * 0.5f;
         if (segs[i].dseg && vfdFont) {
-            dl->AddText(vfdFont, kVfdFontSize, ImVec2(x, y), kCyan, segs[i].text);
+            dl->AddText(vfdFont, dsegSize, ImVec2(x, y), kCyan, segs[i].text);
         } else {
             dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(x, y),
                         kWord, segs[i].text);
@@ -77,6 +89,27 @@ void vfdLine(const VfdSeg* segs, int count) {
         x += widths[i];
     }
     ImGui::Dummy(box);
+}
+
+// M5e: native zip picker for the Load... button. Returns an empty string
+// on cancel/failure. `hwnd` is the owner window (HWND, may be null).
+std::string pickZipDialog(void* hwnd) {
+#ifdef _WIN32
+    wchar_t file[MAX_PATH] = L"";
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = static_cast<HWND>(hwnd);
+    ofn.lpstrFile = file;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrFilter = L"Track zip (*.zip)\0*.zip\0All files (*.*)\0*.*\0";
+    ofn.lpstrTitle = L"Load a Trekker-NG track zip";
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    if (!GetOpenFileNameW(&ofn)) return {};
+    return std::filesystem::path(file).u8string();
+#else
+    (void)hwnd;
+    return {};
+#endif
 }
 
 } // namespace
@@ -185,7 +218,10 @@ void DeckView::drawLane(tng::Deck& deck, const tng::DeckData& data,
     if (label != nullptr) {
         // White, not the stem color: the label sits over the waveform and
         // disappears into same-colored peaks (worst when the lane is muted
-        // and its color is dimmed).
+        // and its color is dimmed). M5e: a dark +1/+1 shadow copy first so
+        // it also survives bright peaks under the white text.
+        dl->AddText(ImVec2(pos.x + 9.0f, pos.y + 4.0f), IM_COL32(0, 0, 0, 140),
+                    label);
         dl->AddText(ImVec2(pos.x + 8.0f, pos.y + 3.0f), IM_COL32(255, 255, 255, 255),
                     label);
     }
@@ -198,7 +234,18 @@ void DeckView::drawLane(tng::Deck& deck, const tng::DeckData& data,
     if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
 }
 
-const char* DeckView::draw(tng::Deck& deck, bool active) {
+void drawVuBar(ImDrawList* dl, float x, float y, float w, float h, float level) {
+    dl->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + h), IM_COL32(14, 14, 18, 255));
+    const float fill = level * (h - 2.0f);
+    const ImU32 color = level > 0.9f   ? IM_COL32(255, 70, 60, 255)
+                        : level > 0.7f ? IM_COL32(255, 200, 60, 255)
+                                       : IM_COL32(90, 210, 120, 255);
+    dl->AddRectFilled(ImVec2(x + 1.0f, y + h - 1.0f - fill),
+                      ImVec2(x + w - 1.0f, y + h - 1.0f), color);
+    dl->AddRect(ImVec2(x, y), ImVec2(x + w, y + h), IM_COL32(60, 60, 70, 255));
+}
+
+const char* DeckView::draw(tng::Deck& deck, bool active, bool showVU) {
     const tng::DeckData* data = deck.track();
     const char* loadPath = nullptr;
 
@@ -258,13 +305,11 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
         ImGui::Spacing();
         const bool atEnd =
             deck.positionFrames() >= static_cast<double>(data->frames) - 1.0;
-        // Left block: buttons + remaining time and pitch % on the first
-        // line, bar.beat | BPM under the buttons, hot cues and the loop row
-        // after that. Keeping the long text off the first line leaves the
-        // pitch fader and the VU meter inside the deck's column width, and
-        // the cue/loop rows inside this group use the dead space under the
-        // bar line - the deck child clips anything that flows after the
-        // fader/VU line (M4d lesson).
+        // Left column (M5e): everything that is not a slider - buttons,
+        // the VFD rows, hot cues, loops, stem toggles and the Load button.
+        // The right column (pitch / nudge / VU) sizes its sliders to this
+        // group's measured height so the faders run down to the Load row.
+        const ImVec2 leftTop = ImGui::GetCursorScreenPos();
         ImGui::BeginGroup();
         const char* playLabel = deck.playing() ? "Pause" : "Play";
         if (ImGui::Button(playLabel, ImVec2(80.0f, 0.0f))) {
@@ -299,14 +344,19 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
             deck.setPlaying(false);
             cuePreviewing_ = false;
         }
-        ImGui::SameLine();
-        // Remaining time + pitch % on the first row (user decision
-        // 2026-10-05): total - position with a CDJ-style minus sign
-        // (clamped at 0 inside formatTime), pitch in the freed space; the
-        // bar.beat + effective BPM row below appears when the track has a
-        // grid. The pitch state machine runs later in this function (the
-        // nudge needs the slider item), so this row shows last frame's
-        // value while dragging - a 16 ms lag, imperceptible.
+        // M5e: the readout rows moved below the Play/CUE line - at the
+        // bigger time+pitch size the combined row grew ~60 px wider than
+        // the buttons and pushed the pitch/nudge/VU column out of the
+        // narrower Mix-mode deck child (VU clipped). On its own row the
+        // wide readout only sets the left column's width, which the right
+        // column then measures against.
+        // Remaining time + pitch % (user decision 2026-10-05): total -
+        // position with a CDJ-style minus sign (clamped at 0 inside
+        // formatTime), pitch beside it; the bar.beat + effective BPM row
+        // below appears when the track has a grid. The pitch state machine
+        // runs later in this function (the nudge needs the slider item), so
+        // this row shows last frame's value while dragging - a 16 ms lag,
+        // imperceptible.
         const double fs = static_cast<double>(std::max(data->sampleRate, 1u));
         const double posSec = deck.positionFrames() / fs;
         const double totalSec = static_cast<double>(data->frames) / fs;
@@ -318,7 +368,7 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
                       nudging_ ? nudgeTarget_ : pitchPct_);
         const VfdSeg timeSegs[] = {
             {remBuf, true}, {"  ", false}, {pitchBuf, true}};
-        vfdLine(timeSegs, 3);
+        vfdLine(timeSegs, 3, readoutSize_); // M5e: big time+pitch row
         if (data->bpm > 0.0f) {
             // M4d: the beat phase is aligned to the grid (first beat offset)
             // and shown as bar.beat with the effective BPM, DJ-style.
@@ -386,7 +436,7 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
                 }
                 ImGui::PopStyleColor(3);
                 ImGui::PopID();
-                if (s != 7) ImGui::SameLine();
+                if (s != 7) ImGui::SameLine(0.0f, 4.0f); // M5e: Mix-mode fit
             }
         }
 
@@ -442,108 +492,11 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
                     }
                 }
                 ImGui::PopID();
-                if (q != 4) ImGui::SameLine();
+                if (q != 4) ImGui::SameLine(0.0f, 4.0f); // M5e: Mix-mode fit
             }
         }
 
-        ImGui::EndGroup();
-
-        // --- vertical pitch fader (SPEC §6): ------------------------------
-        // M5c: direction is a persisted setting (SPEC §4.3). Reversed
-        // (default, DJ gear): top = slow, bottom = fast. Straight: top =
-        // fast. The widget always edits the on-screen value; pitchPct_ is
-        // mapped through the direction. The % readout sits on the transport
-        // line next to the remaining time (user decision 2026-10-05).
-        // M4d: Shift+click nudge (jog-style bend) + the range toggle button.
-        ImGui::SameLine(0.0f, 16.0f);
-        ImGui::BeginGroup();
-        ImGui::TextDisabled("pitch");
-        float shown = pitchReversed_ ? -pitchPct_ : pitchPct_;
-        ImGuiIO& io = ImGui::GetIO();
-        const bool armed = io.KeyShift || nudging_; // nudge armed: slider inert
-        if (armed) ImGui::BeginDisabled();
-        ImGui::VSliderFloat("##pitch", ImVec2(34.0f, 68.0f), &shown, -pitchRange_,
-                            pitchRange_, "", ImGuiSliderFlags_AlwaysClamp);
-        const bool faderHover =
-            ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
-        if (armed) ImGui::EndDisabled();
-
-        if (io.KeyShift && faderHover && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-            // Nudge: bend toward the value under the cursor (below the
-            // handle = slider low end = +pitch/faster when reversed,
-            // -pitch/slower when straight), magnitude = click distance,
-            // minimum 0.5% on that side.
-            nudging_ = true;
-            nudgeBase_ = pitchPct_;
-            const ImVec2 r0 = ImGui::GetItemRectMin();
-            const ImVec2 r1 = ImGui::GetItemRectMax();
-            const float norm = (io.MousePos.y - r0.y) / (r1.y - r0.y);
-            const float shownBase = pitchReversed_ ? -nudgeBase_ : nudgeBase_;
-            const float handleNorm = (pitchRange_ - shownBase) / (2.0f * pitchRange_);
-            const float side = (norm >= handleNorm) ? 1.0f : -1.0f;
-            // norm -> pitchPct: reversed below = +pitch, straight below = -pitch
-            const float k = pitchReversed_ ? 1.0f : -1.0f;
-            float target = k * pitchRange_ * (2.0f * norm - 1.0f);
-            if (std::fabs(target - nudgeBase_) < 0.5f) target = nudgeBase_ + 0.5f * side * k;
-            nudgeTarget_ = std::max(-pitchRange_, std::min(pitchRange_, target));
-        }
-
-        if (nudging_) {
-            if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-                // Release: snap back to the base pitch (the 15 ms rate glide
-                // smooths both the bend and the return).
-                pitchPct_ = nudgeBase_;
-                deck.setRate(1.0 + pitchPct_ / 100.0);
-                nudging_ = false;
-            } else {
-                deck.setRate(1.0 + nudgeTarget_ / 100.0); // handle stays at base
-            }
-        } else if (ImGui::IsItemActive()) {
-            pitchPct_ = pitchReversed_ ? -shown : shown; // drag: map back through direction
-            deck.setRate(1.0 + static_cast<double>(pitchPct_) / 100.0);
-        } else {
-            pitchPct_ = static_cast<float>((deck.rate() - 1.0) * 100.0); // idle: mirror
-        }
-
-        // Range toggle (SPEC §4.3, user decision: 2-state 10/16 for v1).
-        char rangeLbl[16];
-        std::snprintf(rangeLbl, sizeof(rangeLbl), "%.0f%%", pitchRange_);
-        if (ImGui::Button(rangeLbl, ImVec2(44.0f, 0.0f))) {
-            setPitchRange(deck, (pitchRange_ == 10.0f) ? 16.0f : 10.0f);
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("pitch range - click to toggle (10%% default, 16%%)");
-        }
-        ImGui::EndGroup();
-
-        // --- per-deck VU meter (not in SPEC; small bonus) -------------------
-        // Peak of the deck's own output (pre line fader/crossfader), peak-hold
-        // with a fast fall so the bar is readable at 60 fps. Clamped: four
-        // hot stems can sum past 1.0, the bar just stays full.
-        ImGui::SameLine(0.0f, 4.0f);
-        ImGui::BeginGroup();
-        ImGui::TextDisabled("VU");
-        const float vuPeak = std::min(1.0f, deck.blockPeak());
-        vuLevel_ = std::max(vuPeak, vuLevel_ * 0.88f);
-        const ImVec2 vuPos = ImGui::GetCursorScreenPos();
-        const float vuW = 22.0f;
-        const float vuH = 68.0f;
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(vuPos, ImVec2(vuPos.x + vuW, vuPos.y + vuH),
-                          IM_COL32(14, 14, 18, 255));
-        const float fill = vuLevel_ * (vuH - 2.0f);
-        const ImU32 vuColor = vuLevel_ > 0.9f   ? IM_COL32(255, 70, 60, 255)
-                              : vuLevel_ > 0.7f ? IM_COL32(255, 200, 60, 255)
-                                                : IM_COL32(90, 210, 120, 255);
-        dl->AddRectFilled(ImVec2(vuPos.x + 1.0f, vuPos.y + vuH - 1.0f - fill),
-                          ImVec2(vuPos.x + vuW - 1.0f, vuPos.y + vuH - 1.0f), vuColor);
-        dl->AddRect(vuPos, ImVec2(vuPos.x + vuW, vuPos.y + vuH), IM_COL32(60, 60, 70, 255));
-        ImGui::Dummy(ImVec2(vuW, vuH));
-        ImGui::EndGroup();
-    }
-
-    // --- stem toggles (colored, SPEC §6) ---------------------------------------
-    if (data) {
+        // --- stem toggles (colored, SPEC §6), M5e inside the left column ----
         ImGui::Spacing();
         for (int i = 0; i < tng::Deck::kStemCount; ++i) {
             const tng::Stem& st = data->stems[static_cast<size_t>(i)];
@@ -564,16 +517,172 @@ const char* DeckView::draw(tng::Deck& deck, bool active) {
             if (!present) ImGui::EndDisabled();
             if (i != tng::Deck::kStemCount - 1) ImGui::SameLine();
         }
-    }
 
-    // --- load box --------------------------------------------------------------
-    ImGui::Spacing();
-    const float loadW = ImGui::GetContentRegionAvail().x;
-    ImGui::SetNextItemWidth(loadW - 90.0f);
-    ImGui::InputText("##path", pathBuf_, sizeof(pathBuf_));
-    ImGui::SameLine();
-    if (ImGui::Button("Load") && pathBuf_[0] != '\0') {
-        loadPath = pathBuf_;
+        // --- load (M5e): native zip picker instead of the old path input
+        // row; dropping a folder/zip on the window stays the main action.
+        ImGui::Spacing();
+        if (ImGui::Button("Load...", ImVec2(110.0f, 0.0f))) {
+            loadResult_ = pickZipDialog(nativeHwnd_);
+            if (!loadResult_.empty()) loadPath = loadResult_.c_str();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("pick a track .zip (or drop one anywhere in the window)");
+        }
+
+        ImGui::EndGroup();
+
+        // Measure the left column and size the faders to match so the
+        // pitch fader runs down to where the Load button sits.
+        const float leftH = ImGui::GetCursorScreenPos().y - leftTop.y;
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const float labelRow = ImGui::GetTextLineHeight() + style.ItemSpacing.y;
+        const float btnRow = ImGui::GetFrameHeight() + style.ItemSpacing.y;
+        const float sliderH = std::max(68.0f, leftH - labelRow - btnRow);
+        const float vuH = std::max(68.0f, leftH - labelRow);
+
+        // --- vertical pitch fader (SPEC §6): ------------------------------
+        // M5c: direction is a persisted setting (SPEC §4.3). Reversed
+        // (default, DJ gear): top = slow, bottom = fast. Straight: top =
+        // fast. The widget always edits the on-screen value; pitchPct_ is
+        // mapped through the direction. The % readout sits beside the
+        // remaining time on its own row (M5e moved both below Play/CUE).
+        // M5e: plain slider - the momentary bend moved to the nudge slider
+        // next to it (Shift+click is gone, see below).
+        ImGui::SameLine(0.0f, 8.0f); // M5e: 8 px keeps Mix mode under 468 px
+        ImGui::BeginGroup();
+        ImGui::TextDisabled("pitch");
+        float shown = pitchReversed_ ? -pitchPct_ : pitchPct_;
+        ImGui::VSliderFloat("##pitch", ImVec2(34.0f, sliderH), &shown, -pitchRange_,
+                            pitchRange_, "", ImGuiSliderFlags_AlwaysClamp);
+
+        if (nudging_) {
+            if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                // Release: snap back to the base pitch (the 15 ms rate glide
+                // smooths both the bend and the return).
+                pitchPct_ = nudgeBase_;
+                deck.setRate(1.0 + pitchPct_ / 100.0);
+                nudging_ = false;
+            } else {
+                deck.setRate(1.0 + nudgeTarget_ / 100.0); // handle stays at base
+            }
+        } else if (ImGui::IsItemActive()) {
+            pitchPct_ = pitchReversed_ ? -shown : shown; // drag: map back through direction
+            deck.setRate(1.0 + static_cast<double>(pitchPct_) / 100.0);
+        } else {
+            pitchPct_ = static_cast<float>((deck.rate() - 1.0) * 100.0); // idle: mirror
+        }
+
+        // Range toggle (SPEC §4.3, user decision: 2-state 10/16 for v1).
+        // M5e: 34 px wide to match the slider (was 44).
+        char rangeLbl[16];
+        std::snprintf(rangeLbl, sizeof(rangeLbl), "%.0f%%", pitchRange_);
+        if (ImGui::Button(rangeLbl, ImVec2(34.0f, 0.0f))) {
+            setPitchRange(deck, (pitchRange_ == 10.0f) ? 16.0f : 10.0f);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("pitch range - click to toggle (10%% default, 16%%)");
+        }
+        ImGui::EndGroup();
+
+        // --- nudge slider (M5e): momentary pitch bend next to the pitch
+        // fader, replacing Shift+click. Click above/below center and hold =
+        // bend toward that side (magnitude = distance, min 0.5%), release
+        // snaps back via the same nudging_/nudgeTarget_ state machine in
+        // the pitch block above. M5g: the click is a delta APPENDED to the
+        // pitch the deck is playing at (center = no change, top/bottom =
+        // +/-full range), never an absolute value from 0 % - at -8 % pitch
+        // the slow side must slow down, not jump toward zero. Direction
+        // follows the fader setting: reversed (default) = down is faster.
+        // M5f/M5g: the handle shows the applied bend while held (fixed at
+        // the clicked offset) and snaps to center on release - drawn
+        // manually, it never trails the mouse.
+        // No label row (M5e plan: right column = pitch label + sliders)
+        // - a "nudge" caption would widen the group past what the
+        // Mix-mode deck child can hold; the tooltip teaches it instead.
+        ImGui::SameLine(0.0f, 4.0f);
+        ImGui::BeginGroup();
+        ImGui::Dummy(ImVec2(1.0f, labelRow)); // reserve the label row, align tops
+        const ImVec2 npos = ImGui::GetCursorScreenPos();
+        const ImVec2 nsize(34.0f, sliderH);
+        ImDrawList* ndl = ImGui::GetWindowDrawList();
+        ndl->AddRectFilled(npos, ImVec2(npos.x + nsize.x, npos.y + nsize.y),
+                           IM_COL32(14, 14, 18, 255));
+        const float nMid = npos.y + nsize.y * 0.5f;
+        ndl->AddLine(ImVec2(npos.x + 1.0f, nMid), ImVec2(npos.x + nsize.x - 1.0f, nMid),
+                     IM_COL32(96, 244, 224, 120));
+        // M5g: handle offset = the applied bend (target - base), so center
+        // = the pitch the deck plays at and the strip reads +/- the bend;
+        // the press math below inverts this exact formula, clamped to stay
+        // inside.
+        {
+            const float k = pitchReversed_ ? 1.0f : -1.0f;
+            const float shown = nudging_ ? (nudgeTarget_ - nudgeBase_) : 0.0f;
+            float hy = nMid;
+            if (pitchRange_ > 0.0f)
+                hy = npos.y + nsize.y * (shown / (2.0f * k * pitchRange_) + 0.5f);
+            hy = std::max(npos.y + 6.0f, std::min(npos.y + nsize.y - 6.0f, hy));
+            ndl->AddRectFilled(ImVec2(npos.x + 5.0f, hy - 5.0f),
+                               ImVec2(npos.x + nsize.x - 5.0f, hy + 5.0f),
+                               IM_COL32(170, 178, 186, 255));
+        }
+        ndl->AddRect(npos, ImVec2(npos.x + nsize.x, npos.y + nsize.y),
+                     IM_COL32(60, 60, 70, 255));
+        ImGui::Dummy(nsize);
+        const bool nHover = ImGui::IsItemHovered();
+        if (nHover) {
+            ImGui::SetTooltip(
+                "nudge: click above/below center and hold = bend the current "
+                "pitch by that offset, release snaps back");
+        }
+        if (nHover && !nudging_ && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            nudging_ = true;
+            nudgeBase_ = pitchPct_; // the pitch playing at the moment of press
+            const float norm = (ImGui::GetIO().MousePos.y - npos.y) / nsize.y;
+            const float side = (norm >= 0.5f) ? 1.0f : -1.0f;
+            // M5g: norm -> bend DELTA (center = no change), not absolute
+            // pitch: reversed below = bend +pitch (faster), straight below
+            // = bend -pitch, i.e. the bend direction follows the fader.
+            const float k = pitchReversed_ ? 1.0f : -1.0f;
+            float delta = k * pitchRange_ * (2.0f * norm - 1.0f);
+            if (std::fabs(delta) < 0.5f) {
+                delta = 0.5f * side * k;
+            }
+            const float target = nudgeBase_ + delta;
+            nudgeTarget_ = std::max(-pitchRange_, std::min(pitchRange_, target));
+            deck.setRate(1.0 + nudgeTarget_ / 100.0); // bend now, this frame
+        }
+        // Row filler: matches the pitch group's range-button row below.
+        ImGui::Dummy(ImVec2(34.0f, ImGui::GetFrameHeight()));
+        ImGui::EndGroup();
+
+        // --- per-deck VU meter (M5g: Single mode only - in Mix mode the
+        // meters moved to the mixer column, beside the A/B line faders) ---
+        // Peak of the deck's own output (pre line fader/crossfader), peak-hold
+        // with a fast fall so the bar is readable at 60 fps.
+        if (showVU) {
+            ImGui::SameLine(0.0f, 4.0f);
+            ImGui::BeginGroup();
+            ImGui::TextDisabled("VU");
+            const float vuPeak = std::min(1.0f, deck.blockPeak());
+            vuLevel_ = std::max(vuPeak, vuLevel_ * 0.88f);
+            const ImVec2 vuPos = ImGui::GetCursorScreenPos();
+            const float vuW = 22.0f;
+            drawVuBar(ImGui::GetWindowDrawList(), vuPos.x, vuPos.y, vuW, vuH,
+                      vuLevel_);
+            ImGui::Dummy(ImVec2(vuW, vuH));
+            ImGui::EndGroup();
+        }
+    } else {
+        // No track: the placeholder box is drawn above; offer the Load
+        // button on its own (M5e - no right column without data).
+        ImGui::Spacing();
+        if (ImGui::Button("Load...", ImVec2(110.0f, 0.0f))) {
+            loadResult_ = pickZipDialog(nativeHwnd_);
+            if (!loadResult_.empty()) loadPath = loadResult_.c_str();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("pick a track .zip (or drop one anywhere in the window)");
+        }
     }
 
     return loadPath;

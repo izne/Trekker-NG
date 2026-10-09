@@ -54,7 +54,9 @@ if [ "${1:-}" = "release" ]; then
   cp -f dist/SDL2.dll "$STAGE/"
   cp -f README.md "$STAGE/"
   # DSEG7 (VFD readouts) is SIL OFL 1.1 - the license must travel with it.
-  cp -f docs/FORMAT.md docs/USAGE.md docs/ui-m4d.png docs/ui-m5c-settings.png "$STAGE/docs/"
+  # M5e screenshots are current; m4d/m5c ship too (UI history in docs/).
+  cp -f docs/FORMAT.md docs/USAGE.md docs/ui-m4d.png docs/ui-m5c-settings.png \
+        docs/ui-m5e.png docs/ui-m5e-single.png docs/ui-m5e-settings.png "$STAGE/docs/"
   cp -f third_party/fonts/OFL-DSEG.txt "$STAGE/docs/"
   rm -f "$ZIP"
 

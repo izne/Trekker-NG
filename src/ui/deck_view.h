@@ -3,7 +3,8 @@
 // The M3 deck view (SPEC §6/§8): title, composite waveform overview on top
 // (full width), four per-stem lanes below it (colored, dimmed when muted),
 // playhead + click-seek on every lane, 4 colored stem toggles, transport,
-// reversed vertical pitch fader, time/beat readout and the load box.
+// reversed vertical pitch fader, time/beat readout and the Load button
+// (M5e: native zip dialog).
 
 #include "deck.h"
 
@@ -14,6 +15,7 @@
 #include <vector>
 
 struct ImFont; // Dear ImGui, global scope (imgui.h)
+struct ImDrawList;
 
 namespace tui {
 
@@ -37,13 +39,19 @@ struct WaveformCache {
     void build(const tng::DeckData& data, int bins = 1024);
 };
 
+// M5g: the VU bar visual, shared by the deck panel (Single mode) and the
+// mixer column (Mix mode, flanking the A/B line faders): dark background,
+// green/yellow/red fill from the bottom by `level` (0..1), thin frame.
+void drawVuBar(ImDrawList* dl, float x, float y, float w, float h, float level);
+
 class DeckView {
 public:
     // Draws the whole deck panel. Returns a non-empty path when the user
-    // pressed Load with a path in the box; the caller starts the async load.
+    // picked a zip in the Load... dialog; the caller starts the async load.
     // `active` (M4c) highlights the title: it is the deck the global keys
-    // (Space, pitch) currently target.
-    const char* draw(tng::Deck& deck, bool active);
+    // (Space, pitch) currently target. `showVU` (M5g): false in Mix mode,
+    // where the meters live in the mixer column next to the A/B faders.
+    const char* draw(tng::Deck& deck, bool active, bool showVU);
 
     // Call after publishTrack(): forces the waveform rebuild for the new track.
     // A nudge survives a hot swap: the rate target carries over with the
@@ -62,6 +70,14 @@ public:
     // false when there is nothing pending.
     bool takeNotice(std::string& out, bool& err);
 
+    // M5e: pixel size of the big VFD row (remaining time + pitch %), seeded
+    // from the settings screen; the bar/BPM row stays at the fixed size.
+    void setReadoutSize(float size) { readoutSize_ = size; }
+
+    // M5e: owner window for the Load... file dialog (HWND on Windows,
+    // passed by main.cpp right after the SDL window is created).
+    void setNativeHwnd(void* hwnd) { nativeHwnd_ = hwnd; }
+
     // M4d: the fader's pitch range (SPEC §4.3 selector; M5c: seeded from
     // settings, the 10/16 button still toggles it live).
     float pitchRange() const { return pitchRange_; }
@@ -77,7 +93,7 @@ public:
     void setPitchReversed(bool reversed) { pitchReversed_ = reversed; }
     bool pitchReversed() const { return pitchReversed_; }
 
-    // M4d: true while a Shift+click nudge owns the deck rate (pitch keys back
+    // M4d: true while a nudge owns the deck rate (pitch keys back
     // off so they cannot stomp the base pitch the nudge restores).
     bool nudging() const { return nudging_; }
     // M4d: abort a nudge (window focus loss): restores the base pitch on the
@@ -97,7 +113,9 @@ private:
 
     WaveformCache wf_;
     bool wfDirty_ = true; // rebuild on next draw
-    char pathBuf_[1024] = {};
+    std::string loadResult_; // M5e: path chosen in the Load... dialog
+    float readoutSize_ = 20.0f; // M5e: big VFD row size (settings seed)
+    void* nativeHwnd_ = nullptr; // M5e: Load... dialog owner (platform handle)
     float pitchPct_ = 0.0f; // mirrors the deck rate while the fader is idle
     float vuLevel_ = 0.0f;  // smoothed VU bar: peak-hold with a per-frame fall
 
@@ -106,7 +124,7 @@ private:
     bool cuePreviewing_ = false; // CUE held: previewing, return on release
     float pitchRange_ = 10.0f;  // SPEC §4.3 selector: 10 or 16 (M5c: persisted)
     bool pitchReversed_ = true; // M5c: DJ-style up = slower (settings seed)
-    bool nudging_ = false;      // Shift+click nudge active on the fader
+    bool nudging_ = false;      // M5e: nudge slider bend active (momentary)
     float nudgeBase_ = 0.0f;    // pitchPct_ frozen at the nudge press
     float nudgeTarget_ = 0.0f;  // bent pitch while the mouse is held
     std::filesystem::path trackPath_; // saveCues target for hot-cue edits
