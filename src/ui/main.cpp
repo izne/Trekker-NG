@@ -546,7 +546,15 @@ int main(int argc, char** argv) {
             const float availW = ImGui::GetContentRegionAvail().x;
             const float availH =
                 std::max(240.0f, ImGui::GetContentRegionAvail().y - kStatusReserve);
-            const float panelW = std::max(240.0f, (availW - kMixerWidth) * 0.5f);
+            // M5g round 2: the meter/fader block (VU+fader+gap+fader+VU =
+            // 136 px) is 10 px wider than the mixer's cursor rows
+            // (crossfader/master = kMixerWidth - 24), so the row really
+            // spans 8 + 136 + 8 = 152 px plus the old 8 px trailing slack:
+            // reserve kMixerWidth + 10. Both decks give up 5 px (their
+            // outer edges - deck B's right margin especially - stay put)
+            // and the inner padding stays symmetric.
+            const float panelW =
+                std::max(240.0f, (availW - kMixerWidth - 10.0f) * 0.5f);
             const ImGuiWindowFlags childFlags =
                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
 
@@ -757,6 +765,18 @@ int main(int argc, char** argv) {
             } else {
                 ImGui::TextDisabled("clip");
             }
+            // M5g round 2: VU B is custom-drawn out to the full meter/fader
+            // block width (136 px) but the cursor rows above stop short
+            // (crossfader = kMixerWidth - 24), so the group used to end
+            // early and deck B crowded VU B (right gap ~0 px vs deck A's
+            // 8). Reserve the block width here so deck B lands exactly one
+            // SameLine gap away - the same padding deck A has on the other
+            // side.
+            const float kBlockW =
+                2.0f * kVuW + 2.0f * vuGap + 2.0f * kLineSliderW + abGap;
+            const float blockNeed =
+                (abTop.x + kBlockW) - ImGui::GetCursorScreenPos().x;
+            if (blockNeed > 0.0f) ImGui::Dummy(ImVec2(blockNeed, 1.0f));
             ImGui::EndGroup();
 
             ImGui::SameLine();

@@ -152,14 +152,17 @@ mytrack/
 - **Two modes:** Single (one deck, full width) is the boot default; `M` toggles
   Mix (two deck panels side by side, mixer column between them: A/B line
   faders flanked by the per-deck VU meters (M5g, each deck's meter beside its
-  own fader), EQ, crossfader, master). M5c: the last used mode is persisted
+  own fader, with the same padding to its deck panel on both sides), EQ,
+  crossfader, master). M5c: the last used mode is persisted
   and restored at the next boot
   (the settings screen also has a "start in Mix mode" checkbox for it).
   v1 is exactly 2 decks.
 - In Mix mode the **active deck** is the panel under the mouse (highlighted
   title); the global transport/pitch/cue keys target it.
 - Per deck: track title, 4 stem toggle buttons (colored, lit when on),
-  play/pause, CUE (set / hold-to-preview / return, §4.5), 8 hot cue buttons,
+  play/pause, CUE (set / hold-to-preview / return, §4.5), 8 hot cue buttons
+  (M5g: hover shows only the cue's remaining time in the countdown format,
+  empty slots nothing),
   loop controls (In/Out/On/Exit + 1/2/4/8/16-beat quick loops), vertical pitch
   fader with a range toggle (v1: ±10 / ±16 %) and a persisted direction
   (§4.3, M5c); M5e stacks the deck's bottom panel as a left column (transport,
@@ -191,10 +194,13 @@ mytrack/
   the fullscreen flag persist in the same `trekker-ng.json` and restore at
   boot; `F11` toggles borderless fullscreen. The size is written at exit
   and on toggle only - maximized/fullscreen sizes never overwrite the
-  windowed restore dimensions. Tooltips teach state, never click actions
-  (M5f/M5g): right-click resets are documented instead - EQ sliders reset to
-  flat (M5a), the crossfader centers (M5f) - and the EQ kill buttons carry no
-  tooltip at all (M5g; the band slider already names band and dB).
+  windowed restore dimensions. Tooltips teach state, never click actions,
+  and only where they inform (M5f/M5g): right-click resets are documented
+  instead - EQ sliders reset to flat (M5a), the crossfader centers (M5f) -
+  while the EQ kill buttons, the nudge slider and the quick-loop buttons
+  carry no tooltip at all (M5g; the band slider already names band and dB)
+  and a hot-cue button shows only its cue's remaining time in the
+  countdown format (M5g; an empty slot shows nothing).
 - **Waveform:** overview (summed stems plus per-stem lanes) with a playhead;
   pre-computed min/max peaks on load, click-to-seek. A stretch goal is a
   zoomed scrolling waveform.

@@ -423,16 +423,16 @@ const char* DeckView::draw(tng::Deck& deck, bool active, bool showVU) {
                     deck.clearHotCue(s);
                     persistCues(deck, "hot cue cleared");
                 }
-                if (ImGui::IsItemHovered()) {
-                    if (filled) {
-                        char tt[96];
-                        std::snprintf(tt, sizeof(tt),
-                                      "hot cue %d at %.2f s - click to jump, right-click to clear",
-                                      s + 1, cues[static_cast<size_t>(s)].positionMs / 1000.0);
-                        ImGui::SetTooltip("%s", tt);
-                    } else {
-                        ImGui::SetTooltip("hot cue %d empty - click to set at the playhead", s + 1);
-                    }
+                // M5g round 2: the tooltip is only the cue's remaining time
+                // in the VFD countdown format; empty slots show nothing
+                // (the click/right-click behavior lives in USAGE).
+                if (filled && ImGui::IsItemHovered()) {
+                    const double cueSec = cues[static_cast<size_t>(s)].positionMs / 1000.0;
+                    const double totalSec = static_cast<double>(data->frames) / fs2;
+                    char rem[24], tt[32];
+                    formatTime(totalSec - cueSec, rem, sizeof(rem));
+                    std::snprintf(tt, sizeof(tt), "-%s", rem);
+                    ImGui::SetTooltip("%s", tt);
                 }
                 ImGui::PopStyleColor(3);
                 ImGui::PopID();
@@ -483,14 +483,8 @@ const char* DeckView::draw(tng::Deck& deck, bool active, bool showVU) {
                     noticeErr_ = true;
                 }
                 if (!hasBpm) ImGui::EndDisabled();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                    if (hasBpm) {
-                        ImGui::SetTooltip("%d-beat loop from the playhead (Alt+%d)",
-                                          kQuick[q], q + 1);
-                    } else {
-                        ImGui::SetTooltip("quick loops need a BPM in meta.json");
-                    }
-                }
+                // M5g round 2: no tooltip - USAGE documents Alt+N and the
+                // BPM requirement.
                 ImGui::PopID();
                 if (q != 4) ImGui::SameLine(0.0f, 4.0f); // M5e: Mix-mode fit
             }
@@ -598,7 +592,8 @@ const char* DeckView::draw(tng::Deck& deck, bool active, bool showVU) {
         // manually, it never trails the mouse.
         // No label row (M5e plan: right column = pitch label + sliders)
         // - a "nudge" caption would widen the group past what the
-        // Mix-mode deck child can hold; the tooltip teaches it instead.
+        // Mix-mode deck child can hold; the docs teach it instead (M5g
+        // round 2 even dropped the tooltip).
         ImGui::SameLine(0.0f, 4.0f);
         ImGui::BeginGroup();
         ImGui::Dummy(ImVec2(1.0f, labelRow)); // reserve the label row, align tops
@@ -629,11 +624,6 @@ const char* DeckView::draw(tng::Deck& deck, bool active, bool showVU) {
                      IM_COL32(60, 60, 70, 255));
         ImGui::Dummy(nsize);
         const bool nHover = ImGui::IsItemHovered();
-        if (nHover) {
-            ImGui::SetTooltip(
-                "nudge: click above/below center and hold = bend the current "
-                "pitch by that offset, release snaps back");
-        }
         if (nHover && !nudging_ && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             nudging_ = true;
             nudgeBase_ = pitchPct_; // the pitch playing at the moment of press

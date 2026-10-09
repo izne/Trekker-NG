@@ -33,9 +33,10 @@ bend and snaps back to center, right-click centers the crossfader,
 tooltips no longer describe click resets, and window size + F11
 fullscreen are persisted, default width 1150 px so the VU meters fit);
 M5g is the layout pass (the Mix-mode VU meters move into the mixer column
-beside their own A/B faders, the deck right column keeps pitch + nudge
-only, the nudge bend becomes an offset of the current pitch, and the EQ
-kill buttons lose their tooltips). The project is governed by
+beside their own A/B faders with equal padding to both deck panels, the
+deck right column keeps pitch + nudge only, the nudge bend becomes an
+offset of the current pitch, the kill/nudge/quick-loop tooltips are gone,
+and a hot-cue button hovers to only its countdown time). The project is governed by
 [`SPEC.md`](SPEC.md).
 
 ![Trekker-NG settings window over the single-deck view](docs/ui-m5e-settings.png)
@@ -113,8 +114,9 @@ kill buttons lose their tooltips). The project is governed by
   VU meters are never clipped); resize the window and the size is restored
   at the next boot, `F11` toggles borderless fullscreen and that flag is
   persisted too. Tooltips only teach state - the right-click resets
-  (EQ to flat, crossfader to center) are documented here instead, and the
-  EQ kill buttons have no tooltip at all (M5g).
+  (EQ to flat, crossfader to center) are documented here instead; the
+  kill, nudge and quick-loop buttons carry no tooltip at all, and a hot
+  cue hovers to only its remaining time (M5g).
 - **Mix mode (M4c)** - `M` toggles Single / Mix: Mix shows
   deck A and deck B side by side with a mixer column (A/B line faders
   flanked by the per-deck VU meters - M5g, each deck's meter beside its own
