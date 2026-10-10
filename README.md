@@ -8,7 +8,7 @@ stem features of Traktor / djay, but for your own exported stems.
 Written in C++17. Windows first (MSYS2/MinGW64); the engine is kept portable
 so Linux/macOS can follow.
 
-**Current status: M5 of 6 complete** - M4a/M4b are in: the equal-power
+**Current status: M5 of 7 complete** - M4a/M4b are in: the equal-power
 crossfader with line/master gains and a two-deck audio path in the engine,
 plus frame-accurate loops and cue points (parse + persistence). M4c adds the
 two-deck **Mix** mode to the UI: two decks side by side with a mixer column,
@@ -39,9 +39,7 @@ offset of the current pitch, the kill/nudge/quick-loop tooltips are gone,
 and a hot-cue button hovers to only its countdown time). The project is governed by
 [`SPEC.md`](SPEC.md).
 
-![Trekker-NG settings window over the single-deck view](docs/ui-m5e-settings.png)
-
-![Trekker-NG mix mode - two decks with hot cues, loop controls, bar/BPM readouts, mixer column with VU meters beside the A/B faders, pitch/nudge sliders](docs/ui-m5e.png)
+![Trekker-NG mix mode with the settings window open: two decks with waveform lanes, VFD time/BPM readouts, hot cues and loops, and the mixer column (VU meters beside the A/B faders, 3-band EQ, crossfader curve, master)](docs/ui-m5g.jpg)
 
 | # | Milestone | Status |
 |---|-----------|--------|
@@ -51,6 +49,7 @@ and a hot-cue button hovers to only its countdown time). The project is governed
 | **M4** | Second deck, crossfader, master section, hot cues, loops, beat display | done |
 | **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings | done (M5a, M5b, M5c, M5d, M5e, M5f, M5g) |
 | **M6** | Packaging: Windows build, Linux AppImage, docs, example tracks | planned |
+| **M7** | Recording: master-bus MP3 capture (`libmp3lame` DLL) with WAV fallback into `recordings/` | planned |
 
 ## Features
 
@@ -348,7 +347,7 @@ src/
 tests/               doctest suite (SPEC §9), run automatically by build.sh
 tools/               manual acceptance helpers (test-track generator)
 examples/            example track
-docs/                FORMAT.md, USAGE.md, ui-m4d.png, ui-m5c-settings.png
+docs/                FORMAT.md, USAGE.md, ui-m5g.jpg (UI screenshot)
 third_party/         vendored: miniaudio, miniz, nlohmann/json, doctest, imgui,
                      fonts/DSEG7Classic-Regular.ttf (VFD readouts, SIL OFL 1.1)
 ```

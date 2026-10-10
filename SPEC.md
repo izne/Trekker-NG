@@ -19,7 +19,8 @@ Origin: tracker / Buzz / Reason background. A song is a set of channels, and a D
 
 ## 2. Non-goals (for now)
 
-- No track library or database, no streaming services, no recording.
+- No track library or database, no streaming services. (Recording arrives
+  with M7; see §8.)
 - No AI stem separation (stems come from the producer's DAW).
 - No effects, no keylock in v1 (see Future).
 - No MIDI controller support in v1 (see Future).
@@ -32,6 +33,7 @@ Origin: tracker / Buzz / Reason background. A song is a set of channels, and a D
 | Language | C++17 |
 | Build | CMake (single `CMakeLists.txt`, dependencies via `FetchContent` or vendored single headers) |
 | Audio I/O and decoding | **miniaudio** (single header, public domain). Use `ma_decoder` for decoding and `ma_device` for output |
+| MP3 encoding (M7) | **libmp3lame** DLL, loaded at runtime (`LoadLibrary`, no link-time dependency; LGPL - the DLL and its license travel in the release). WAV fallback via miniaudio's `ma_encoder` (WAV is the only format miniaudio can encode) |
 | UI | **Dear ImGui** + SDL2 (OpenGL3 backend). Immediate-mode, minimal code |
 | JSON | nlohmann/json (or any single-header equivalent) |
 | ZIP reading | **miniz** (single file, public domain), for `.zip` tracks |
@@ -58,6 +60,11 @@ Deck A: 4 stems ──(shared playhead, rate)──► stem gains ──► sum 
                                                                  ├─► crossfader ─► master gain ─► soundcard
 Deck B: 4 stems ──(shared playhead, rate)──► stem gains ──► sum ─┘
 ```
+
+- **Recording (M7)** taps this master output (after EQ, crossfader, limiter -
+  exactly what the soundcard plays): the audio callback only copies each block
+  into a preallocated lock-free ring; a writer thread drains the ring and
+  encodes to disk. The callback itself keeps every §4.7 rule.
 
 ### 4.2 Deck / playhead
 
@@ -201,13 +208,22 @@ mytrack/
   carry no tooltip at all (M5g; the band slider already names band and dB)
   and a hot-cue button shows only its cue's remaining time in the
   countdown format (M5g; an empty slot shows nothing).
+- **Recording** (M7): a Record button in the top bar (beside the mode and
+  settings buttons, so both modes have it) and the `R` key toggle a
+  master-bus capture - exactly the soundcard signal. While recording the
+  button shows `● REC` with the elapsed time and the format (MP3 CBR
+  320 kbps, or WAV when the MP3 path is unavailable), and warns if the
+  disk could not keep up (drop counter > 0). Files land in `recordings/`
+  next to the exe, timestamped `trekker-ng-YYYYMMDD-HHMMSS.mp3` (or
+  `.wav`); stopping finalizes the file in place, and quitting while
+  recording stops it gracefully first.
 - **Waveform:** overview (summed stems plus per-stem lanes) with a playhead;
   pre-computed min/max peaks on load, click-to-seek. A stretch goal is a
   zoomed scrolling waveform.
 - Keyboard shortcuts for everything (a laptop is the controller for v1):
   `Space` play/pause, `1`-`4`/`7`-`0` stems, pitch keys `=+-_[]` + `0` reset,
   `Shift+1`-`8` hot cues, `I`/`O`/`L`/`Shift+L` loop keys, `Alt+1`-`5` quick
-  loops, `M` mode, `F11` fullscreen (M5f), `Q`/`Esc` quit. A configurable
+  loops, `M` mode, `F11` fullscreen (M5f), `R` record (M7), `Q`/`Esc` quit. A configurable
   map is nice but not required.
 - Drag and drop a track folder or zip anywhere on the window (routes to the
   deck under the pointer); or the `Load...` native zip dialog per deck (M5e;
@@ -252,6 +268,7 @@ trekker-ng/
 | **M4** | Second deck, crossfader, master section, hot cues, loops, beat display. | You can do a full mix of two tracks. |
 | **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings (audio device, buffer size, pitch range, readout size), pitch-fader direction, nudge slider, native load dialog, window state (size + F11 fullscreen), mixer-column VU meters. | A friend can use it without you explaining. |
 | **M6** | Packaging: Windows build and Linux AppImage, docs, example tracks. | Ready for jamming with friends. |
+| **M7** | **Recording.** The Record button / `R` captures the master bus (post-EQ/crossfader/limiter, §4.1) to `recordings/` next to the exe as `trekker-ng-YYYYMMDD-HHMMSS.mp3` - MP3 CBR 320 kbps via the `libmp3lame` DLL loaded at runtime, with automatic WAV fallback (`ma_encoder`) when the DLL is missing or the sample rate is not MPEG-1 (32/44.1/48 kHz). Realtime-safe (§4.7): the callback only copies into a preallocated ring, a writer thread encodes; the drop counter reports a disk that fell behind. | You record a full mix while playing, the file plays back with zero glitches and an empty drop counter - and a copy of the app without the lame DLL still records (WAV). |
 
 Work on **one milestone at a time**. Do not start the next one until the current one builds, runs, and is committed. Every milestone ends with a fresh runnable build in `dist/` for the user to test (see §10.2).
 
@@ -267,8 +284,9 @@ Automated (engine, headless, no soundcard needed, render offline to a buffer):
 4. **Jump declick:** cue jumps produce no discontinuity above the threshold.
 5. **Interpolator:** at rate 1.0 the output equals the input exactly (bit-identical for integer positions).
 6. **Realtime safety:** a debug build option that asserts there are no allocations in the callback (or review by inspection with a checklist).
+7. **Recording (M7):** the recorder's `push()` performs no heap allocations while armed (same allocation-hook check as 6); a known ramp pushed directly into the recorder and flushed to WAV decodes back with the exact frame count and content within s16 quantization; the MP3 round-trip (encode -> `ma_decoder` decode) checks length within the LAME encoder delay and skips cleanly when the lame DLL is absent.
 
-Manual: listen test at ±10% on real music (the original exported song). It should sound like pitching a record, with no warble, phasing, or "digital" smear.
+Manual: listen test at ±10% on real music (the original exported song). It should sound like pitching a record, with no warble, phasing, or "digital" smear. M7: record a few minutes while mixing - the file plays back with no dropouts, the drop counter stays at zero, and without `libmp3lame-0.dll` beside the exe the same take saves as WAV instead.
 
 ## 10. Rules for the agent
 
