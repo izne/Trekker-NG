@@ -8,7 +8,8 @@ stem features of Traktor / djay, but for your own exported stems.
 Written in C++17. Windows first (MSYS2/MinGW64); the engine is kept portable
 so Linux/macOS can follow.
 
-**Current status: M5 of 7 complete** - M4a/M4b are in: the equal-power
+**Current status: 6 of 7 complete** (M1-M5 and M7; M6 packaging remains) -
+M4a/M4b are in: the equal-power
 crossfader with line/master gains and a two-deck audio path in the engine,
 plus frame-accurate loops and cue points (parse + persistence). M4c adds the
 two-deck **Mix** mode to the UI: two decks side by side with a mixer column,
@@ -36,8 +37,14 @@ M5g is the layout pass (the Mix-mode VU meters move into the mixer column
 beside their own A/B faders with equal padding to both deck panels, the
 deck right column keeps pitch + nudge only, the nudge bend becomes an
 offset of the current pitch, the kill/nudge/quick-loop tooltips are gone,
-and a hot-cue button hovers to only its countdown time). The project is governed by
-[`SPEC.md`](SPEC.md).
+and a hot-cue button hovers to only its countdown time). M7 adds
+**recording**: the Record button / `R` captures the master bus (post-EQ /
+crossfader / limiter) into `recordings/` next to the exe as a timestamped
+MP3 (CBR 320 kbps through `libmp3lame-0.dll`, loaded at runtime) with
+automatic WAV fallback when the DLL is missing or the rate is not MPEG-1;
+the audio callback only copies into a preallocated ring, a writer thread
+encodes, and the drop counter reports a disk that fell behind. The project
+is governed by [`SPEC.md`](SPEC.md).
 
 ![Trekker-NG mix mode with the settings window open: two decks with waveform lanes, VFD time/BPM readouts, hot cues and loops, and the mixer column (VU meters beside the A/B faders, 3-band EQ, crossfader curve, master)](docs/ui-m5g.jpg)
 
@@ -49,7 +56,7 @@ and a hot-cue button hovers to only its countdown time). The project is governed
 | **M4** | Second deck, crossfader, master section, hot cues, loops, beat display | done |
 | **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings | done (M5a, M5b, M5c, M5d, M5e, M5f, M5g) |
 | **M6** | Packaging: Windows build, Linux AppImage, docs, example tracks | planned |
-| **M7** | Recording: master-bus MP3 capture (`libmp3lame` DLL) with WAV fallback into `recordings/` | planned |
+| **M7** | Recording: master-bus MP3 capture (`libmp3lame` DLL) with WAV fallback into `recordings/` | done |
 
 ## Features
 
@@ -124,6 +131,18 @@ and a hot-cue button hovers to only its countdown time). The project is governed
   global keys target (its title is highlighted). Drop or Load routes to the
   deck under the pointer. M5c: the last used mode is persisted and restored
   at the next boot.
+- **Recording (M7)** - `[record]` in the status bar (or `R`) captures the
+  master bus - post EQ, crossfader and limiter, exactly what the soundcard
+  plays - into `recordings/` next to the exe as
+  `trekker-ng-YYYYMMDD-HHMMSS.mp3` (MP3 CBR 320 kbps via
+  `libmp3lame-0.dll`, loaded at runtime; LGPL 2.1 text ships in the zip).
+  Without the DLL - or at a non-MPEG-1 sample rate (32/44.1/48 kHz) - the
+  take saves as WAV instead. Realtime-safe (SPEC §4.7): the callback only
+  copies into a preallocated 2-second ring, a writer thread encodes; a
+  full ring drops the block whole and counts the frames (reported when the
+  take stops). While recording the button is a red `REC mm:ss` counter;
+  quitting finalizes the file, a track-induced sample-rate change stops
+  the take (noted in the load status).
 - **Offline render mode** - render to WAV without a soundcard (`--render`),
   used for tests and automation.
 - **ImGui UI with drag & drop** - drop a track folder or `.zip` anywhere on
@@ -144,7 +163,9 @@ and a hot-cue button hovers to only its countdown time). The project is governed
   everything else keeps the regular UI font. The big time+pitch row's size
   is a setting (M5e, 12..32 px, default 20).
 - **Self-contained download** - `trekker-ng.exe` + `SDL2.dll` only (everything
-  else, including the C++ runtime, is statically linked).
+  else, including the C++ runtime, is statically linked); `libmp3lame-0.dll`
+  rides along for MP3 recording (M7, runtime-loaded - without it recordings
+  are WAV).
 
 ## Quick start
 
@@ -168,6 +189,7 @@ In a MINGW64 shell:
 
 ```
 pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
+pacman -S mingw-w64-x86_64-lame      # optional, M7: MP3 recording (else WAV)
 ```
 
 Then, inside the project directory (also MINGW64 shell):
@@ -178,7 +200,9 @@ Then, inside the project directory (also MINGW64 shell):
 ```
 
 The runnable result is `dist/` with `trekker-ng.exe` (UI), `trekker-console.exe`
-and `SDL2.dll`. Failing tests block the build, so a `dist/` build is known-good.
+and `SDL2.dll` - plus `libmp3lame-0.dll` when installed (M7: MP3 recording;
+without it the recorder falls back to WAV). Failing tests block the build, so
+a `dist/` build is known-good.
 
 ## Running the example track
 
@@ -261,6 +285,7 @@ dist\trekker-console.exe examples\magnat.zip --render out.wav --rate 0.93 --seco
 | `L` | toggle the loop; `Shift+L` exits and clears it |
 | `Alt+1` … `Alt+5` | quick loop of 1 / 2 / 4 / 8 / 16 beats from the playhead |
 | `M` | toggle Single / Mix mode (persisted - next boot restores it) |
+| `R` | start / stop recording the master bus into `recordings/` (M7) |
 | `F11` | toggle fullscreen (borderless; persisted - next boot restores it) |
 | `Q` / `Esc` | quit |
 
@@ -342,6 +367,8 @@ src/
                              clamped fields
     track_loader.{h,cpp}     folder/zip -> DeckData, meta.json, cue persistence
     audio_device.{h,cpp}     miniaudio device + playback-device enumeration
+    recorder.{h,cpp}         M7 master-bus capture: SPSC ring + writer thread,
+                             MP3 (runtime libmp3lame) with WAV fallback
   ui/                M3 ImGui + SDL2 front-end (main loop, deck view)
   console/           M1/M2 console front-end (kept as trekker-console)
 tests/               doctest suite (SPEC §9), run automatically by build.sh
@@ -359,7 +386,10 @@ with a global `operator new` counter.
 
 Libraries (SPEC §3): **miniaudio** (device, decode, WAV encode), **miniz**
 (zip), **nlohmann/json** ("meta.json"), **doctest** (tests), **Dear ImGui**
-(UI, vendored) + **SDL2** (window/GL, from pacman). The VFD readouts use
+(UI, vendored) + **SDL2** (window/GL, from pacman). M7 adds **libmp3lame**
+(MP3 encoding through `libmp3lame-0.dll`, loaded at runtime so it is not a
+build dependency; LGPL 2.1 - the license ships as
+`docs/LGPL-2.1-libmp3lame.txt` in release zips). The VFD readouts use
 **DSEG7 Classic** by Keshikan (SIL OFL 1.1, embedded in the exe; the license
 ships as `docs/OFL-DSEG.txt` in release zips).
 
@@ -387,6 +417,11 @@ synthesized in memory:
    beat-grid quick loops guard bad input (M4d)
 8. **VU peak** - `Deck::blockPeak()` tracks the rendered output's peak and
    drops to 0 once the deck settles
+9. **Recorder (M7)** - `push()` allocates nothing while armed, an
+   over-capacity block is dropped whole and counted, a known ramp
+   round-trips through WAV with the exact frame count (s16 quantization
+   only), and the MP3 round-trip checks length and tone through
+   `ma_decoder` (skipping cleanly when the lame DLL is absent)
 
 Manual acceptance (SPEC §9): listen at ±10 % on real music - it should sound
 like pitching a record, with no warble, phasing, or digital smear.

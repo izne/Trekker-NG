@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One-command build for Trekker-NG inside the MSYS2 MINGW64 environment.
-#   ./build.sh            build -> dist/{trekker-ng,trekker-console}.exe + SDL2.dll
+#   ./build.sh            build -> dist/{trekker-ng,trekker-console}.exe
+#                         + SDL2.dll (+ libmp3lame-0.dll when installed, M7)
 #   ./build.sh release    build + pack dist/trekker-ng-<VERSION>-win64.zip
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -31,6 +32,17 @@ if [ -z "$SDL2_DLL" ]; then
 fi
 cp -f "$SDL2_DLL" dist/SDL2.dll
 
+# M7: MP3 recording loads libmp3lame-0.dll at runtime (LoadLibrary - no
+# link-time dependency). Stage it for the zip; without it the recorder
+# falls back to WAV, so a missing DLL is a warning, not an error.
+LAME_DLL="/d/msys64/mingw64/bin/libmp3lame-0.dll"
+if [ -f "$LAME_DLL" ]; then
+  cp -f "$LAME_DLL" dist/libmp3lame-0.dll
+else
+  echo "warning: libmp3lame-0.dll missing - recordings fall back to WAV" \
+       "(pacman -S mingw-w64-x86_64-lame)" >&2
+fi
+
 echo
 echo "build OK -> dist/trekker-ng.exe + dist/trekker-console.exe + dist/SDL2.dll"
 echo "DLL dependencies of the UI (should be SDL2.dll + Windows system DLLs):"
@@ -52,11 +64,18 @@ if [ "${1:-}" = "release" ]; then
   cp -f dist/trekker-ng.exe "$STAGE/"
   cp -f dist/trekker-console.exe "$STAGE/"
   cp -f dist/SDL2.dll "$STAGE/"
+  if [ -f dist/libmp3lame-0.dll ]; then
+    cp -f dist/libmp3lame-0.dll "$STAGE/"
+  fi
   cp -f README.md "$STAGE/"
   # DSEG7 (VFD readouts) is SIL OFL 1.1 - the license must travel with it.
+  # libmp3lame is LGPL 2.1 (runtime-loaded) - same rule, see SPEC §3.
   # One current screenshot (ui-m5g.jpg) - the single image the README shows.
   cp -f docs/FORMAT.md docs/USAGE.md docs/ui-m5g.jpg "$STAGE/docs/"
   cp -f third_party/fonts/OFL-DSEG.txt "$STAGE/docs/"
+  if [ -f docs/LGPL-2.1-libmp3lame.txt ]; then
+    cp -f docs/LGPL-2.1-libmp3lame.txt "$STAGE/docs/"
+  fi
   rm -f "$ZIP"
 
   powershell.exe -NoProfile -Command \

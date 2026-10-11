@@ -19,6 +19,7 @@ add_library(trekker_engine STATIC
   src/engine/settings.cpp
   src/engine/track_loader.cpp
   src/engine/audio_device.cpp
+  src/engine/recorder.cpp
   third_party/miniz/miniz.c
   third_party/miniz/miniz_tdef.c
   third_party/miniz/miniz_tinfl.c
@@ -39,6 +40,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     src/engine/mixer.cpp
     src/engine/settings.cpp
     src/engine/track_loader.cpp
+    src/engine/recorder.cpp
     PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra"
   )
   set_source_files_properties(
@@ -113,6 +115,7 @@ if(TREKKER_BUILD_TESTS)
     tests/test_mixer.cpp
     tests/test_loader.cpp
     tests/test_settings.cpp
+    tests/test_recorder.cpp
   )
   target_include_directories(trekker_tests PRIVATE third_party tests)
   target_link_libraries(trekker_tests PRIVATE trekker_engine)
@@ -125,6 +128,7 @@ if(TREKKER_BUILD_TESTS)
       tests/test_mixer.cpp
       tests/test_loader.cpp
       tests/test_settings.cpp
+      tests/test_recorder.cpp
       PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra"
     )
   endif()

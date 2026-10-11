@@ -2,6 +2,7 @@
 
 #include "deck.h"
 #include "mixer.h"
+#include "recorder.h"
 
 #define MA_IMPLEMENTATION
 #include "miniaudio.h"
@@ -18,6 +19,7 @@ struct AudioDevice::Impl {
     Deck* deckA = nullptr;
     Deck* deckB = nullptr;
     Mixer* mixer = nullptr;
+    Recorder* recorder = nullptr; // M7: null = no tap; outlives the device
     // Per-deck scratch buffers, allocated once in init() (SPEC §4.7: the
     // callback itself never allocates). Sized to one period.
     std::vector<float> scratchA;
@@ -61,6 +63,11 @@ void dataCallback(ma_device* device, void* pOutput, const void* /*pInput*/,
         // nullptr deckB = single-deck mode: the mixer bypasses the
         // crossfader so deckA keeps its full line gain.
         self->mixer->process(sa, self->deckB != nullptr ? sb : nullptr, out + offset * 2, n);
+
+        // M7 (SPEC 4.1): tap the master bus - the block just written is
+        // exactly what reaches the soundcard (post EQ/cross/limiter).
+        // Recorder::push is gate + ring copy only (SPEC 4.7).
+        if (self->recorder != nullptr) self->recorder->push(out + offset * 2, n);
         offset += n;
     }
 }
@@ -96,10 +103,12 @@ bool AudioDevice::listPlaybackDevices(std::vector<std::string>* names) {
 }
 
 bool AudioDevice::init(Deck* deckA, Deck* deckB, Mixer* mixer, uint32_t sampleRate,
-                       uint32_t periodFrames, const char* deviceName, std::string* error) {
+                       uint32_t periodFrames, const char* deviceName, std::string* error,
+                       Recorder* recorder) {
     impl_->deckA = deckA;
     impl_->deckB = deckB;
     impl_->mixer = mixer;
+    impl_->recorder = recorder;
     impl_->frameCap = periodFrames > 0 ? periodFrames : 256;
     impl_->scratchA.assign(static_cast<size_t>(impl_->frameCap) * 2, 0.0f);
     impl_->scratchB.assign(static_cast<size_t>(impl_->frameCap) * 2, 0.0f);

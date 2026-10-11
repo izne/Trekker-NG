@@ -11,6 +11,7 @@
 #include "audio_device.h"
 #include "deck.h"
 #include "mixer.h"
+#include "recorder.h" // M7: master-bus capture
 #include "settings.h"
 #include "track_loader.h"
 
@@ -26,6 +27,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <ctime> // M7: timestamped recording file names
 #include <filesystem>
 #include <future>
 #include <optional>
@@ -86,12 +88,15 @@ int main(int argc, char** argv) {
     // fullscreen flag seed SDL_CreateWindow below.
     tng::Settings settings;
     std::filesystem::path settingsPath;
+    std::filesystem::path recordDir; // M7: recordings/ next to the exe
     {
         char* base = SDL_GetBasePath();
-        settingsPath = std::filesystem::u8path(base ? base : "./");
+        const std::filesystem::path basePath =
+            std::filesystem::u8path(base ? base : "./");
         SDL_free(base);
-        settingsPath /= "trekker-ng.json";
+        settingsPath = basePath / "trekker-ng.json";
         settings.load(settingsPath);
+        recordDir = basePath / "recordings";
     }
 
     SDL_Window* window = SDL_CreateWindow(
@@ -154,8 +159,11 @@ int main(int argc, char** argv) {
     std::array<tui::DeckView, kDeckCount> views;
     tng::Mixer mixer;
     tng::AudioDevice device;
+    tng::Recorder recorder; // M7: taps the master bus inside the callback
     bool deviceUp = false;
     uint32_t devRate = 0;
+    // M7: UI-side start time behind the Record button's REC mm:ss counter.
+    std::chrono::steady_clock::time_point recStartT;
 
 #ifdef _WIN32
     // M5e: the HWND both deck views use to parent their Load... zip dialog.
@@ -273,7 +281,8 @@ int main(int argc, char** argv) {
         // M5c: named device from settings ("" = system default).
         const char* devName =
             settings.deviceName.empty() ? nullptr : settings.deviceName.c_str();
-        if (!device.init(&decks[0], &decks[1], &mixer, rate, periodFrames, devName, &err)) {
+        if (!device.init(&decks[0], &decks[1], &mixer, rate, periodFrames, devName, &err,
+                         &recorder)) {
             setStatus("audio init failed: " + err, true);
             return false;
         }
@@ -331,8 +340,15 @@ int main(int argc, char** argv) {
             setStatus(buf, true);
             return;
         }
+        bool recStoppedForRate = false;
         if (deviceUp && rate != devRate) {
             // Sample rate changed: restart the device at the track's rate.
+            // M7: a running take was opened at the old rate (the ring is
+            // sized per rate) - finalize it before the restart.
+            if (recorder.recording()) {
+                recorder.stop();
+                recStoppedForRate = true;
+            }
             device.stop();
             device.shutdown();
             deviceUp = false;
@@ -344,11 +360,12 @@ int main(int argc, char** argv) {
         if (!deviceUp) startDevice(rate);
 
         const tng::DeckData* d = decks[di].track();
-        char buf[320];
-        std::snprintf(buf, sizeof(buf), "loaded %s: %s%s%s | %u Hz | %.1f s",
+        char buf[400];
+        std::snprintf(buf, sizeof(buf), "loaded %s: %s%s%s | %u Hz | %.1f s%s",
                       deckName(di), d->artist.c_str(),
                       d->artist.empty() ? "" : " - ", d->title.c_str(), d->sampleRate,
-                      static_cast<double>(d->frames) / static_cast<double>(d->sampleRate));
+                      static_cast<double>(d->frames) / static_cast<double>(d->sampleRate),
+                      recStoppedForRate ? " (recording stopped: rate change)" : "");
         setStatus(buf, !deviceUp);
     };
 
@@ -365,6 +382,56 @@ int main(int argc, char** argv) {
         saveSettings();
         setStatus(mixMode ? "mix mode - two decks, crossfader centered"
                           : "single mode - deck B paused",
+                  false);
+    };
+
+    // M7 (SPEC §6): R toggles the master-bus capture into recordings/
+    // next to the exe, timestamped trekker-ng-YYYYMMDD-HHMMSS.mp3 (CBR 320
+    // through libmp3lame-0.dll at runtime) or .wav when the DLL is missing
+    // or the device rate is not MPEG-1 (32/44.1/48 kHz).
+    auto toggleRecord = [&]() {
+        if (recorder.recording()) {
+            recorder.stop();
+            if (recorder.failed()) {
+                setStatus("record: write failed - " + recorder.filePath(), true);
+                return;
+            }
+            char buf[512];
+            std::snprintf(buf, sizeof(buf), "saved %s (%llu frames dropped)",
+                          recorder.filePath().c_str(),
+                          static_cast<unsigned long long>(recorder.droppedFrames()));
+            setStatus(buf, false);
+            return;
+        }
+        if (!deviceUp) {
+            setStatus("record: audio device is not running", true);
+            return;
+        }
+        std::error_code ec;
+        std::filesystem::create_directories(recordDir, ec);
+        if (ec) {
+            setStatus("record: cannot create " + recordDir.u8string(), true);
+            return;
+        }
+        std::time_t now = std::time(nullptr);
+        std::tm tmv{};
+#ifdef _WIN32
+        localtime_s(&tmv, &now);
+#else
+        localtime_r(&now, &tmv);
+#endif
+        char stamp[32];
+        std::strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &tmv);
+        const std::string base =
+            (recordDir / ("trekker-ng-" + std::string(stamp))).u8string();
+        std::string err;
+        if (!recorder.start(base, devRate, &err)) {
+            setStatus("record: " + err, true);
+            return;
+        }
+        recStartT = std::chrono::steady_clock::now();
+        setStatus("recording to " + recorder.filePath() +
+                      (recorder.usingMp3() ? " (MP3 320 kbps)" : " (WAV)"),
                   false);
     };
 
@@ -469,6 +536,13 @@ int main(int argc, char** argv) {
                     }
                     case SDLK_m:
                         toggleMode();
+                        break;
+                    case SDLK_r:
+                        // M7: record the master bus (modifier-guarded like
+                        // the I/O/L loop keys - Shift+R is not Record).
+                        if (!(e.key.keysym.mod & (KMOD_SHIFT | KMOD_ALT | KMOD_CTRL))) {
+                            toggleRecord();
+                        }
                         break;
                     case SDLK_q: case SDLK_ESCAPE:
                         running = false;
@@ -826,9 +900,31 @@ int main(int argc, char** argv) {
         ImGui::SameLine();
         if (ImGui::Button("[settings]")) showSettings = !showSettings;
         ImGui::SameLine();
+        // M7: Record button. A failed take (disk full etc.) auto-stops
+        // here on the UI thread; the writer only flags it.
+        if (recorder.recording() && recorder.failed()) toggleRecord();
+        if (recorder.recording()) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.35f, 0.3f, 1.0f));
+            const long long sec =
+                std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::steady_clock::now() - recStartT)
+                    .count();
+            char recLabel[32];
+            std::snprintf(recLabel, sizeof(recLabel), "REC %02lld:%02lld", sec / 60,
+                          sec % 60);
+            ImGui::PushID("rec"); // label changes each second; keep the ID stable
+            const bool stopReq = ImGui::Button(recLabel);
+            ImGui::PopID();
+            ImGui::PopStyleColor();
+            if (stopReq) toggleRecord();
+        } else if (ImGui::Button("[record]")) {
+            toggleRecord();
+        }
+        ImGui::SameLine();
         ImGui::TextDisabled(
             "keys: Space play/pause (active deck) | 1-4 stems A, 7-0 stems B | "
-            "+/- pitch (0 = reset) | M single/mix | Q / Esc quit | drop on a deck");
+            "+/- pitch (0 = reset) | M single/mix | R record | Q / Esc quit | "
+            "drop on a deck");
         ImGui::TextDisabled(
             "Shift+1-8 hot cue (active deck) | I / O loop in/out, L toggle, Shift+L exit, "
             "Alt+1-5 quick loop | nudge slider = hold for pitch bend (release snaps back)");
@@ -954,6 +1050,7 @@ int main(int argc, char** argv) {
         if (l) l->wait();
     }
     device.stop();
+    recorder.stop(); // M7: finalize the take once the callback is disarmed
     device.shutdown();
     for (auto& d : decks) d.drainRetired();
 

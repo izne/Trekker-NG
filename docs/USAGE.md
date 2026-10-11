@@ -8,6 +8,10 @@ pitch change together, no time-stretching).
 
 - Windows 10+ (64-bit). `SDL2.dll` ships next to the exe - no runtime install.
   A soundcard, obviously.
+- MP3 recording (M7) additionally wants `libmp3lame-0.dll` next to the exe
+  (included in the release zip; LGPL 2.1, license text in `docs/`). Without
+  it - or at a sample rate MP3 cannot take (only 32/44.1/48 kHz) - recordings
+  are written as WAV instead.
 
 ## Run
 
@@ -48,6 +52,7 @@ device restarts once at that rate.
 | nudge slider | (M5e, beside the pitch fader) a momentary **pitch bend**: click above or below the center handle and hold - pitch bends by an offset from the pitch playing at that moment, toward the clicked side (minimum 0.5 %; direction follows the fader setting, so reversed/down = faster), the time readout shows the bent value, and while held the handle shows the offset itself (center = the current pitch); release restores the pitch as it was when you pressed and the handle returns to center (M5f centered the handle, M5g made the bend relative). Replaced the M4d `Shift`+click nudge |
 | time / bar / pitch | remaining time with a minus sign (`-02:33.75`, total - position) and pitch % next to it, `bar 2.3 | 128.0 BPM` below (bar.beat aligned to the beat grid via `first_beat_offset_ms`, plus the effective BPM) - all render as cyan 7-segment VFD readouts on a dark inset (DSEG7 font); text like `bar`, `BPM` and `+`/`%` keeps the regular UI font. M5e: the time+pitch row sits below Play/CUE at a configurable size (settings, 12-32 px, default 20); the bar row stays at 15 px |
 | `Load...` | opens the native zip file dialog for this deck |
+| `[record]` / `REC mm:ss` | (M7) start recording the master bus; while recording the button turns into a red elapsed-time counter - click it again (or press `R`) to stop and save |
 
 ### Single and Mix mode
 
@@ -97,6 +102,7 @@ Mix mode shows:
 | `Shift+L` | exit and clear the loop |
 | `Alt+1` … `Alt+5` | quick loop of 1 / 2 / 4 / 8 / 16 beats from the playhead (active deck; needs a BPM) |
 | `M` | toggle Single / Mix mode (persisted - next boot restores it) |
+| `R` | start / stop recording the master bus into `recordings/` (M7) |
 | `F11` | toggle fullscreen (borderless; persisted - next boot restores it) |
 | `Q` / `Esc` | quit |
 
@@ -128,6 +134,24 @@ Keyboard pitch steps move the fader, so both controls always show the same
 value. Digit shortcuts ignore Alt/Ctrl so a modified digit never toggles a
 stem by accident; the nudge slider beside the fader bends pitch (see the UI
 table).
+
+### Recording (M7)
+
+Press `[record]` in the status bar (or `R`) to capture the master bus -
+everything you hear, post EQ / crossfader / limiter. The button turns into
+a red `REC mm:ss` counter; press it again (or `R`) to stop.
+
+- Takes land in **`recordings/` next to the exe** as
+  `trekker-ng-YYYYMMDD-HHMMSS.mp3` - MP3 CBR 320 kbps through
+  `libmp3lame-0.dll` (ships in the release zip beside the exe).
+- Without that DLL, or when the device runs at a non-MPEG-1 sample rate
+  (32 / 44.1 / 48 kHz only are MP3-capable), the same take saves as
+  `.wav` instead - recording always works.
+- The status line reports the saved path and the number of frames dropped
+  because the disk fell behind (0 in normal use); a write failure (full
+  disk, missing folder) stops the take and reports the reason.
+- Quitting (`Q` / `Esc`) finalizes the current file. Loading a track with
+  a different sample rate stops a running take - the load status says so.
 
 ## Console front-end
 
