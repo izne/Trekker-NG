@@ -225,6 +225,54 @@ void parseCueArray(const json& arr, std::vector<tng::Cue>& out) {
     }
 }
 
+// M8 (SPEC 5): "flat" track - a single audio file with no meta.json. The
+// decoded file becomes stem 0 (stays sample-locked, EQ/mute/etc. all work)
+// and the rest stay empty; the UI hides the stem furniture for flat tracks.
+// Title = file name stem; hot cues come from a "<file>.cues.json" sidecar
+// (same shape as the zip sidecar) - the audio file itself is never written.
+// Anything the decoder rejects (text files, broken audio) fails here with a
+// decode error rather than a track-format error.
+tng::LoadResult loadFlatTrack(const fs::path& path) {
+    tng::LoadResult result;
+    std::string err;
+    std::vector<uint8_t> bytes;
+    if (!readFileBytes(path, bytes, err)) {
+        result.error = err;
+        return result;
+    }
+    DecodedStem decoded;
+    if (!decodeStem(bytes, pathText(path), decoded, err)) {
+        result.error = err;
+        return result;
+    }
+
+    auto data = std::make_unique<tng::DeckData>();
+    data->title = path.stem().u8string();
+    data->sampleRate = decoded.sampleRate;
+    data->frames = decoded.frames;
+    data->flat = true; // M8: flat UI (empty lane box, no stem toggles)
+    tng::Stem& stem = data->stems[0];
+    stem.name = data->title;
+    stem.color = 0xFFDDDDDD; // neutral gray: no meta.json color to read
+    stem.data = std::move(decoded.data);
+    stem.frames = decoded.frames;
+
+    std::ifstream sc(fs::path(path.u8string() + ".cues.json"), std::ios::binary);
+    if (sc) {
+        const std::string scText((std::istreambuf_iterator<char>(sc)),
+                                 std::istreambuf_iterator<char>());
+        const json scDoc = json::parse(scText, nullptr, false);
+        // Corrupt/incomplete sidecar: no cues (same rule as zip tracks).
+        if (!scDoc.is_discarded() && scDoc.is_object() && scDoc.contains("cues") &&
+            scDoc["cues"].is_array()) {
+            parseCueArray(scDoc["cues"], data->cues);
+        }
+    }
+
+    result.data = std::move(data);
+    return result;
+}
+
 } // namespace
 
 namespace tng {
@@ -240,7 +288,10 @@ LoadResult loadTrack(const std::filesystem::path& path) {
     const bool isDir = fs::is_directory(path);
     const bool isZip = fs::is_regular_file(path) && path.extension() == ".zip";
     if (!isDir && !isZip) {
-        result.error = "not a track folder or .zip file: " + pathText(path);
+        // M8 (SPEC 5): a regular non-zip file tries the flat path (decode);
+        // non-regular paths keep the old "not a track" error.
+        if (fs::is_regular_file(path)) return loadFlatTrack(path);
+        result.error = "not a track folder, .zip or audio file: " + pathText(path);
         return result;
     }
 
@@ -427,9 +478,10 @@ bool saveCues(const std::filesystem::path& trackPath, const std::vector<Cue>& cu
         return fail("path not found: " + pathText(trackPath));
     }
     const bool isDir = fs::is_directory(trackPath);
-    const bool isZip = fs::is_regular_file(trackPath) && trackPath.extension() == ".zip";
-    if (!isDir && !isZip) {
-        return fail("not a track folder or .zip file: " + pathText(trackPath));
+    // Folder: rewrite meta.json in place. Everything else regular (zip or
+    // M8 flat file): sidecar next to it - loadTrack reads it back.
+    if (!isDir && !fs::is_regular_file(trackPath)) {
+        return fail("not a track folder or file: " + pathText(trackPath));
     }
 
     std::string text;

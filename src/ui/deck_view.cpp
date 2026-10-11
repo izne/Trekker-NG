@@ -101,8 +101,10 @@ std::string pickZipDialog(void* hwnd) {
     ofn.hwndOwner = static_cast<HWND>(hwnd);
     ofn.lpstrFile = file;
     ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrFilter = L"Track zip (*.zip)\0*.zip\0All files (*.*)\0*.*\0";
-    ofn.lpstrTitle = L"Load a Trekker-NG track zip";
+    ofn.lpstrFilter =
+        L"Tracks (*.zip;*.wav;*.flac;*.mp3;*.ogg)\0*.zip;*.wav;*.flac;*.mp3;*.ogg\0"
+        L"All files (*.*)\0*.*\0";
+    ofn.lpstrTitle = L"Load a Trekker-NG track";
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
     if (!GetOpenFileNameW(&ofn)) return {};
     return std::filesystem::path(file).u8string();
@@ -272,9 +274,26 @@ const char* DeckView::draw(tng::Deck& deck, bool active, bool showVU) {
     if (active) ImGui::PopStyleColor();
 
     // --- waveforms: composite on top, 4 stem lanes below (all full width) ------
+    // M8 r2: flat tracks (single audio file, SPEC 5) keep the composite at
+    // the stem-mode height and put an empty box where the lanes would be,
+    // so the panel geometry (and the fader heights derived from the left
+    // column) are identical in both modes. The box uses the same dark
+    // style as the no-track placeholder above.
     if (data) {
-        drawLane(deck, *data, wf_.composite, IM_COL32(90, 200, 130, 255), 150.0f, nullptr);
-        for (int i = 0; i < tng::Deck::kStemCount; ++i) {
+        drawLane(deck, *data, wf_.composite, IM_COL32(90, 200, 130, 255), 150.0f,
+                 nullptr);
+        if (data->flat) {
+            const float laneBlock =
+                4.0f * (ImGui::GetStyle().ItemSpacing.y + 38.0f);
+            const ImVec2 pos = ImGui::GetCursorScreenPos();
+            const float w = ImGui::GetContentRegionAvail().x;
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddRectFilled(pos, ImVec2(pos.x + w, pos.y + laneBlock),
+                              IM_COL32(14, 14, 18, 255));
+            dl->AddRect(pos, ImVec2(pos.x + w, pos.y + laneBlock),
+                        IM_COL32(60, 60, 70, 255));
+            ImGui::Dummy(ImVec2(w, laneBlock));
+        } else for (int i = 0; i < tng::Deck::kStemCount; ++i) {
             ImGui::Spacing();
             const tng::Stem& st = data->stems[static_cast<size_t>(i)];
             char laneLabel[48];
@@ -296,7 +315,7 @@ const char* DeckView::draw(tng::Deck& deck, bool active, bool showVU) {
         dl->AddRect(pos, ImVec2(pos.x + w, pos.y + h), IM_COL32(60, 60, 70, 255));
         dl->AddText(ImVec2(pos.x + 16.0f, pos.y + h * 0.5f - 8.0f),
                     IM_COL32(150, 150, 160, 255),
-                    "drop a track folder or .zip anywhere in this window");
+                    "drop a track folder, .zip or audio file anywhere in this window");
         ImGui::Dummy(ImVec2(w, h)); // keeps the cursor below the box
     }
 
@@ -369,18 +388,27 @@ const char* DeckView::draw(tng::Deck& deck, bool active, bool showVU) {
         const VfdSeg timeSegs[] = {
             {remBuf, true}, {"  ", false}, {pitchBuf, true}};
         vfdLine(timeSegs, 3, readoutSize_); // M5e: big time+pitch row
-        if (data->bpm > 0.0f) {
+        {
             // M4d: the beat phase is aligned to the grid (first beat offset)
-            // and shown as bar.beat with the effective BPM, DJ-style.
-            const double beats =
-                std::max(0.0, posSec - data->firstBeatOffsetMs / 1000.0) *
-                static_cast<double>(data->bpm) * deck.rate() / 60.0;
-            const long bar = static_cast<long>(beats / 4.0) + 1;
-            const long beat = static_cast<long>(beats - std::floor(beats / 4.0) * 4.0) + 1;
+            // and shown as bar.beat with the effective BPM, DJ-style. M8 r2:
+            // the row is always drawn - without a beat grid (bpm <= 0: any
+            // flat file, or a stem track with no bpm in meta.json) it shows
+            // honest dashes, so the left column keeps its height either way.
             char barBeat[24], bpmN[24];
-            std::snprintf(barBeat, sizeof(barBeat), "%ld.%ld", bar, beat);
-            std::snprintf(bpmN, sizeof(bpmN), "%.1f",
-                          static_cast<double>(data->bpm) * deck.rate());
+            if (data->bpm > 0.0f) {
+                const double beats =
+                    std::max(0.0, posSec - data->firstBeatOffsetMs / 1000.0) *
+                    static_cast<double>(data->bpm) * deck.rate() / 60.0;
+                const long bar = static_cast<long>(beats / 4.0) + 1;
+                const long beat =
+                    static_cast<long>(beats - std::floor(beats / 4.0) * 4.0) + 1;
+                std::snprintf(barBeat, sizeof(barBeat), "%ld.%ld", bar, beat);
+                std::snprintf(bpmN, sizeof(bpmN), "%.1f",
+                              static_cast<double>(data->bpm) * deck.rate());
+            } else {
+                std::snprintf(barBeat, sizeof(barBeat), "-.-");
+                std::snprintf(bpmN, sizeof(bpmN), "--");
+            }
             const VfdSeg beatSegs[] = {
                 {"bar ", false}, {barBeat, true}, {" | ", false},
                 {bpmN, true},    {" BPM", false}};
@@ -491,25 +519,35 @@ const char* DeckView::draw(tng::Deck& deck, bool active, bool showVU) {
         }
 
         // --- stem toggles (colored, SPEC §6), M5e inside the left column ----
-        ImGui::Spacing();
-        for (int i = 0; i < tng::Deck::kStemCount; ++i) {
-            const tng::Stem& st = data->stems[static_cast<size_t>(i)];
-            const bool present = st.frames > 0;
-            char label[32];
-            std::snprintf(label, sizeof(label), "%d %s", i + 1,
-                          present && !st.name.empty() ? st.name.c_str() : "empty");
-            if (!present) ImGui::BeginDisabled();
-            ImGui::PushID(i);
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(
-                static_cast<float>((st.color >> 16) & 0xFF) / 255.0f,
-                static_cast<float>((st.color >> 8) & 0xFF) / 255.0f,
-                static_cast<float>(st.color & 0xFF) / 255.0f, 1.0f));
-            bool on = deck.stemOn(i);
-            if (ImGui::Checkbox(label, &on)) deck.setStem(i, on);
-            ImGui::PopStyleColor();
-            ImGui::PopID();
-            if (!present) ImGui::EndDisabled();
-            if (i != tng::Deck::kStemCount - 1) ImGui::SameLine();
+        // M8: flat tracks (single audio file) have no stem furniture - the
+        // audio is stem 1 and muting it would just mute the whole track. M8
+        // r2: the row's height is still reserved (Spacing + checkbox frame)
+        // so the left column - and the pitch/nudge sliders sized from it -
+        // keep the stem-mode geometry.
+        if (data->flat) {
+            ImGui::Dummy(ImVec2(
+                1.0f, ImGui::GetStyle().ItemSpacing.y + ImGui::GetFrameHeight()));
+        } else {
+            ImGui::Spacing();
+            for (int i = 0; i < tng::Deck::kStemCount; ++i) {
+                const tng::Stem& st = data->stems[static_cast<size_t>(i)];
+                const bool present = st.frames > 0;
+                char label[32];
+                std::snprintf(label, sizeof(label), "%d %s", i + 1,
+                              present && !st.name.empty() ? st.name.c_str() : "empty");
+                if (!present) ImGui::BeginDisabled();
+                ImGui::PushID(i);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(
+                    static_cast<float>((st.color >> 16) & 0xFF) / 255.0f,
+                    static_cast<float>((st.color >> 8) & 0xFF) / 255.0f,
+                    static_cast<float>(st.color & 0xFF) / 255.0f, 1.0f));
+                bool on = deck.stemOn(i);
+                if (ImGui::Checkbox(label, &on)) deck.setStem(i, on);
+                ImGui::PopStyleColor();
+                ImGui::PopID();
+                if (!present) ImGui::EndDisabled();
+                if (i != tng::Deck::kStemCount - 1) ImGui::SameLine();
+            }
         }
 
         // --- load (M5e): native zip picker instead of the old path input
@@ -520,7 +558,7 @@ const char* DeckView::draw(tng::Deck& deck, bool active, bool showVU) {
             if (!loadResult_.empty()) loadPath = loadResult_.c_str();
         }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("pick a track .zip (or drop one anywhere in the window)");
+            ImGui::SetTooltip("pick a track .zip or audio file (or drop one anywhere in the window)");
         }
 
         ImGui::EndGroup();
@@ -671,7 +709,7 @@ const char* DeckView::draw(tng::Deck& deck, bool active, bool showVU) {
             if (!loadResult_.empty()) loadPath = loadResult_.c_str();
         }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("pick a track .zip (or drop one anywhere in the window)");
+            ImGui::SetTooltip("pick a track .zip or audio file (or drop one anywhere in the window)");
         }
     }
 

@@ -116,6 +116,7 @@ if(TREKKER_BUILD_TESTS)
     tests/test_loader.cpp
     tests/test_settings.cpp
     tests/test_recorder.cpp
+    tests/test_flat.cpp
   )
   target_include_directories(trekker_tests PRIVATE third_party tests)
   target_link_libraries(trekker_tests PRIVATE trekker_engine)
@@ -129,6 +130,7 @@ if(TREKKER_BUILD_TESTS)
       tests/test_loader.cpp
       tests/test_settings.cpp
       tests/test_recorder.cpp
+      tests/test_flat.cpp
       PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra"
     )
   endif()

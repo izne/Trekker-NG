@@ -39,6 +39,10 @@ struct DeckData {
     int64_t frames = 0; // all stems padded to this length
     std::array<Stem, 4> stems;
     std::vector<Cue> cues; // hot cues (the M4d UI edits these on the UI thread)
+    // M8 (SPEC 5): single audio file loaded directly - one filled stem, the
+    // UI hides the stem furniture (lanes/toggles). Distinct from a legit
+    // 1-stem stem track (folder/zip), which keeps the full stem UI.
+    bool flat = false;
 };
 
 // A deck: 4 stems sharing one playhead (SPEC §4.2).

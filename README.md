@@ -8,7 +8,7 @@ stem features of Traktor / djay, but for your own exported stems.
 Written in C++17. Windows first (MSYS2/MinGW64); the engine is kept portable
 so Linux/macOS can follow.
 
-**Current status: 6 of 7 complete** (M1-M5 and M7; M6 packaging remains) -
+**Current status: 7 of 8 complete** (M1-M5, M7 and M8; M6 packaging remains) -
 M4a/M4b are in: the equal-power
 crossfader with line/master gains and a two-deck audio path in the engine,
 plus frame-accurate loops and cue points (parse + persistence). M4c adds the
@@ -43,7 +43,10 @@ crossfader / limiter) into `recordings/` next to the exe as a timestamped
 MP3 (CBR 320 kbps through `libmp3lame-0.dll`, loaded at runtime) with
 automatic WAV fallback when the DLL is missing or the rate is not MPEG-1;
 the audio callback only copies into a preallocated ring, a writer thread
-encodes, and the drop counter reports a disk that fell behind. The project
+encodes, and the drop counter reports a disk that fell behind. M8 adds
+**single-file tracks**: any audio file miniaudio decodes loads directly as a
+flat one-stem track (lane area as an empty box, hot cues in a `.cues.json`
+sidecar next to the file). The project
 is governed by [`SPEC.md`](SPEC.md).
 
 ![Trekker-NG mix mode with the settings window open: two decks with waveform lanes, VFD time/BPM readouts, hot cues and loops, and the mixer column (VU meters beside the A/B faders, 3-band EQ, crossfader curve, master)](docs/ui-m5g.jpg)
@@ -57,6 +60,7 @@ is governed by [`SPEC.md`](SPEC.md).
 | **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings | done (M5a, M5b, M5c, M5d, M5e, M5f, M5g) |
 | **M6** | Packaging: Windows build, Linux AppImage, docs, example tracks | planned |
 | **M7** | Recording: master-bus MP3 capture (`libmp3lame` DLL) with WAV fallback into `recordings/` | done |
+| **M8** | Single-file tracks: any audio file as a flat one-stem track (lane area drawn as an empty box) | done |
 
 ## Features
 
@@ -81,11 +85,13 @@ is governed by [`SPEC.md`](SPEC.md).
   is transparent; the single-deck path (console, tests) bypasses the EQ.
 - **Input formats** - WAV, FLAC, MP3, OGG Vorbis (whatever miniaudio decodes);
   recommended exports are WAV or FLAC (MP3 delay/padding can misalign stems).
-- **Load from a folder or a zip** - loose files, or a zip with an enclosing
-  folder; `meta.json` supplies title/artist/BPM/stem colors.
+- **Load from a folder, a zip, or a single file** - loose stem files, or a zip
+  with an enclosing folder; `meta.json` supplies title/artist/BPM/stem colors.
+  M8: any audio file (WAV, FLAC, MP3, OGG) also loads directly as a *flat*
+  one-stem track (see below).
 - **Cue points & loops (engine)** - cues load from `meta.json` and persist
-  edits (folder tracks rewrite `meta.json`, zip tracks get a `.cues.json`
-  sidecar next to the archive); loops wrap on the exact crossing sample with
+  edits (folder tracks rewrite `meta.json`, zip tracks and M8 single files get
+  a `.cues.json` sidecar next to the archive/file); loops wrap on the exact crossing sample with
   the same 2 ms declick as a seek. The UI drives both since M4d.
 - **CUE button - full main-cue behavior (M4d)** - press while playing to jump
   to the main cue and pause; press while stopped to set the cue at the current
@@ -145,13 +151,16 @@ is governed by [`SPEC.md`](SPEC.md).
   the take (noted in the load status).
 - **Offline render mode** - render to WAV without a soundcard (`--render`),
   used for tests and automation.
-- **ImGui UI with drag & drop** - drop a track folder or `.zip` anywhere on
-  the window, or press `Load...` and pick a zip in the native file dialog
-  (M5e); the track hot-swaps into the
+- **ImGui UI with drag & drop** - drop a track folder, `.zip` or audio file
+  anywhere on the window, or press `Load...` and pick a zip or audio file in
+  the native file dialog (M5e/M8); the track hot-swaps into the
   running audio engine without a click or a restart.
 - **Waveforms** - the composite (mixed) waveform on top plus four per-stem
   lanes below it, each in its stem color and dimmed while muted; all lanes are
-  precomputed min/max peaks, share the playhead, and click-to-seek.
+  precomputed min/max peaks, share the playhead, and click-to-seek. M8 flat
+  tracks keep the stem-mode geometry: the composite at its usual height plus
+  an empty placeholder box where the lanes would be (no stem toggles; the
+  bar/BPM row shows dashes when the track has no beat grid).
 - **Per-deck VU meter** - a peak-hold bar per deck fed by the deck's own
   output (before the line fader/crossfader), green/yellow/red as it approaches
   and passes 0.7/0.9. Location depends on the mode (M5g): in the deck's
@@ -256,7 +265,7 @@ dist\trekker-console.exe examples\magnat.zip --render out.wav --rate 1.10 --seco
 
 ```
 trekker-ng [track] [track2]              # UI: optional initial deck A and deck B
-trekker-console <track.zip | track-folder> [options]   # console + --render
+trekker-console <track.zip | track-folder | audio-file> [options]   # console + --render
 
   --render <out.wav>  render offline to a WAV instead of playing (no soundcard)
   --rate <x>          playback rate for --render (e.g. 1.10 = +10%)
@@ -289,7 +298,8 @@ dist\trekker-console.exe examples\magnat.zip --render out.wav --rate 0.93 --seco
 | `F11` | toggle fullscreen (borderless; persisted - next boot restores it) |
 | `Q` / `Esc` | quit |
 
-Click any waveform lane to seek; drag & drop a track folder or `.zip` anywhere
+Click any waveform lane to seek; drag & drop a track folder, `.zip` or audio
+file anywhere
 to load. The vertical fader is reversed like real DJ gear by default (**up =
 slower, down = faster**) - the direction is a setting (M5c), so a straight
 fader (up = faster) is one checkbox away in `[settings]`; the keyboard steps
@@ -298,7 +308,8 @@ toggles ±10/±16 %, and the nudge slider beside the fader bends pitch while
 held (click above/below center: the bend offsets the pitch playing at the
 press, the handle shows that offset, release snaps back; M5e/M5f/M5g).
 `Load...` opens
-the native zip file dialog (folders via drag & drop or the CLI).
+the native file dialog (zips and, since M8, audio files; folders via drag &
+drop or the CLI).
 
 In Mix mode the transport and pitch keys follow the **active deck** (the panel
 under the mouse), as do the hot-cue and loop keys, `1`-`4` toggle deck A's
@@ -351,7 +362,9 @@ mytrack/
 ```
 
 All files must be stereo and share one sample rate/length (missing stems are
-simply silent). Full details: [`docs/FORMAT.md`](docs/FORMAT.md).
+simply silent). M8: a single audio file also loads directly - as a flat
+one-stem track (lane area as an empty box, no stem toggles, hot cues in a `<file>.cues.json` sidecar).
+Full details: [`docs/FORMAT.md`](docs/FORMAT.md).
 
 ## Architecture
 
@@ -365,7 +378,8 @@ src/
     eq.{h,cpp}               3-band EQ: LR4 band-split, Traktor kill/boost curve
     settings.{h,cpp}         trekker-ng.json load/save (M5c, M5e fields),
                              clamped fields
-    track_loader.{h,cpp}     folder/zip -> DeckData, meta.json, cue persistence
+    track_loader.{h,cpp}     folder/zip/audio file -> DeckData, meta.json,
+                             cue persistence (+ .cues.json sidecars, M8 flat)
     audio_device.{h,cpp}     miniaudio device + playback-device enumeration
     recorder.{h,cpp}         M7 master-bus capture: SPSC ring + writer thread,
                              MP3 (runtime libmp3lame) with WAV fallback
@@ -422,6 +436,11 @@ synthesized in memory:
    round-trips through WAV with the exact frame count (s16 quantization
    only), and the MP3 round-trip checks length and tone through
    `ma_decoder` (skipping cleanly when the lame DLL is absent)
+10. **Flat tracks (M8)** - a synthesized WAV file loads through
+    `loadTrack()` as a flat one-stem DeckData (content, title, rate, and
+    the three silent stems), hot cues round-trip through the
+    `.cues.json` sidecar without touching the audio file, a corrupt
+    sidecar is ignored, and a non-audio file fails with a decode error
 
 Manual acceptance (SPEC §9): listen at ±10 % on real music - it should sound
 like pitching a record, with no warble, phasing, or digital smear.

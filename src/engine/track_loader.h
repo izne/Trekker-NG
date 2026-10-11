@@ -16,8 +16,10 @@ struct LoadResult {
     bool ok() const { return data != nullptr; }
 };
 
-// Loads a Trekker-NG track: either a folder or a .zip containing meta.json and
-// 1..4 stem audio files (SPEC §5). All stems are fully decoded to RAM as
+// Loads a Trekker-NG track (SPEC §5): a folder or a .zip containing meta.json
+// and 1..4 stem audio files, or (M8) a single audio file - anything miniaudio
+// decodes loads as a "flat" one-stem track (DeckData::flat, cues from a
+// "<file>.cues.json" sidecar). All stems are fully decoded to RAM as
 // stereo float32 and padded to equal length. Missing stems stay silent.
 //
 // Cue points (SPEC §4.5): the "cues" array of meta.json seeds DeckData::cues;
@@ -40,8 +42,8 @@ bool setCuesInMeta(const std::string& metaText, const std::vector<Cue>& cues,
                    std::string& outMetaText, std::string* error);
 
 // Persists cue edits: a folder track gets its meta.json rewritten (temp file
-// + rename, unknown fields preserved); a .zip gets a sidecar
-// "<archive>.cues.json" - the archive itself is never modified.
+// + rename, unknown fields preserved); a .zip or single audio file (M8) gets
+// a sidecar "<track>.cues.json" - the track itself is never modified.
 bool saveCues(const std::filesystem::path& trackPath, const std::vector<Cue>& cues,
               std::string* error);
 

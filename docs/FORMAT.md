@@ -1,6 +1,7 @@
 # Trekker-NG track format (v1)
 
-A Trekker-NG track is **either a folder or a `.zip` archive** with the same content:
+A Trekker-NG track is **a folder or a `.zip` archive** with the same content -
+or, since M8, **a single audio file** (see "Single-file tracks" below):
 
 ```
 mytrack/
@@ -66,6 +67,22 @@ matched by filename, so the folder name does not matter.
 - The beat grid in v1 is `bpm` + `first_beat_offset_ms` (the producer knows
   both from the DAW); no freeform beat markers yet.
 
+## Single-file tracks (M8, "flat")
+
+Any regular file that is not a `.zip` is treated as a **flat track**: the
+whole file is stem 1, loaded directly (whatever miniaudio decodes - WAV,
+FLAC, MP3, OGG). There is no `meta.json`, so:
+
+- `title` = the file name without extension, `artist` = `""`, `bpm` = 0,
+- stems 2..3..4 are the documented "missing = silent" case; the UI keeps the
+  stem-mode geometry - composite waveform at its usual height, an empty
+  placeholder box where the stem lanes would be, stem toggles hidden (the deck's
+  `flat` flag in `DeckData` is set only by this load path - a genuine
+  1-stem stem track keeps the full stem UI),
+- the audio file is **never modified**.
+
+A file that miniaudio cannot decode fails to load with a decode error.
+
 ## Cue persistence
 
 When the user edits cue points in the app:
@@ -75,6 +92,9 @@ When the user edits cue points in the app:
 - **Zip track** - the archive is **never modified**. Cues are written to a
   sidecar file right next to it: `mytrack.zip.cues.json`, containing the same
   object shape as `meta.json` (at minimum a `"cues"` array).
+- **Single-file track (M8)** - same as zip: the audio file is never modified;
+  cues go to `mytrack.mp3.cues.json` (the full file name plus
+  `.cues.json`), same object shape.
 
 On load, `cues` come from `meta.json`; a valid sidecar with a `"cues"` array
 overrides them. A missing or corrupt sidecar is ignored (the `meta.json` cues

@@ -1,10 +1,12 @@
 #pragma once
 
 // The M3 deck view (SPEC §6/§8): title, composite waveform overview on top
-// (full width), four per-stem lanes below it (colored, dimmed when muted),
-// playhead + click-seek on every lane, 4 colored stem toggles, transport,
-// reversed vertical pitch fader, time/beat readout and the Load button
-// (M5e: native zip dialog).
+// (full width), four per-stem lanes below it (colored, dimmed when muted;
+// M8 flat tracks - single audio files - put an empty box in the lanes'
+// place), playhead
+// + click-seek on every lane, 4 colored stem toggles, transport, reversed
+// vertical pitch fader, time/beat readout and the Load button
+// (M5e: native dialog - zips and, since M8, audio files).
 
 #include "deck.h"
 
@@ -47,7 +49,8 @@ void drawVuBar(ImDrawList* dl, float x, float y, float w, float h, float level);
 class DeckView {
 public:
     // Draws the whole deck panel. Returns a non-empty path when the user
-    // picked a zip in the Load... dialog; the caller starts the async load.
+    // picked a file (zip or M8 audio file) in the Load... dialog; the caller
+    // starts the async load.
     // `active` (M4c) highlights the title: it is the deck the global keys
     // (Space, pitch) currently target. `showVU` (M5g): false in Mix mode,
     // where the meters live in the mixer column next to the A/B faders.

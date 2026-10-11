@@ -14,7 +14,7 @@ Origin: tracker / Buzz / Reason background. A song is a set of channels, and a D
 3. Per-stem **on/off (mute)** with click-free ramps. Optional per-stem gain.
 4. **Two decks**, a crossfader and a master output.
 5. **Cue points** and **loops**.
-6. Open, simple, documented **track format** (folder or zip with a `meta.json`).
+6. Open, simple, documented **track format** (folder or zip with a `meta.json` - plus single audio files as flat tracks, §5).
 7. Small, readable codebase that one person can understand in an afternoon.
 
 ## 2. Non-goals (for now)
@@ -154,6 +154,18 @@ mytrack/
 - Unknown fields must be ignored (forward compatibility). Missing optional fields get defaults.
 - Write `docs/FORMAT.md` describing the format so third parties can create tracks.
 
+**Single-file tracks (M8, "flat"):** any other regular file that the
+decoder accepts (WAV, FLAC, MP3, OGG Vorbis - whatever miniaudio reads,
+mono or stereo, decoded to stereo) loads directly as a one-stem track:
+title = file name stem, artist empty, bpm 0 (unknown), no `meta.json`.
+The loader flags it `flat` and the UI keeps the stem-mode geometry: the
+composite waveform at its usual height, an empty placeholder box where the
+stem lanes would be, and no stem toggles (§6); the bar/BPM row shows
+dashes when there is no beat grid. Hot cues persist in a
+`<file>.cues.json` sidecar next to the audio file (same shape as the zip
+sidecar); the audio file itself is never written to. A file the decoder
+rejects fails with a decode error, not a track-format error.
+
 ## 6. UI requirements (v1, functional over pretty)
 
 - **Two modes:** Single (one deck, full width) is the boot default; `M` toggles
@@ -166,7 +178,9 @@ mytrack/
   v1 is exactly 2 decks.
 - In Mix mode the **active deck** is the panel under the mouse (highlighted
   title); the global transport/pitch/cue keys target it.
-- Per deck: track title, 4 stem toggle buttons (colored, lit when on),
+- Per deck: track title, 4 stem toggle buttons (colored, lit when on; flat
+  tracks, §5: no stem toggles and no per-stem lanes - the composite
+  waveform takes their place),
   play/pause, CUE (set / hold-to-preview / return, §4.5), 8 hot cue buttons
   (M5g: hover shows only the cue's remaining time in the countdown format,
   empty slots nothing),
@@ -187,8 +201,9 @@ mytrack/
   (minimum 0.5 %), so the handle shows that offset itself (center = the
   current pitch) and release restores the pitch as it was at the press.
   Shift+click on
-  the pitch fader no longer nudges. `Load...` opens a native zip file dialog
-  (folders still arrive via drag & drop or the CLI).
+  the pitch fader no longer nudges. `Load...` opens a native file dialog
+  (zip tracks and single audio files, M8; folders still arrive via
+  drag & drop or the CLI).
 - **Settings screen** (M5c, `[settings]` next to the mode button): audio
   device (miniaudio enumeration, default = system), buffer size, pitch
   range, reversed-pitch-fader checkbox, boot mode, crossfader curve, master
@@ -217,7 +232,8 @@ mytrack/
   next to the exe, timestamped `trekker-ng-YYYYMMDD-HHMMSS.mp3` (or
   `.wav`); stopping finalizes the file in place, and quitting while
   recording stops it gracefully first.
-- **Waveform:** overview (summed stems plus per-stem lanes) with a playhead;
+- **Waveform:** overview (summed stems plus per-stem lanes; flat tracks,
+  §5: overview plus an empty box in the lanes' place) with a playhead;
   pre-computed min/max peaks on load, click-to-seek. A stretch goal is a
   zoomed scrolling waveform.
 - Keyboard shortcuts for everything (a laptop is the controller for v1):
@@ -225,8 +241,9 @@ mytrack/
   `Shift+1`-`8` hot cues, `I`/`O`/`L`/`Shift+L` loop keys, `Alt+1`-`5` quick
   loops, `M` mode, `F11` fullscreen (M5f), `R` record (M7), `Q`/`Esc` quit. A configurable
   map is nice but not required.
-- Drag and drop a track folder or zip anywhere on the window (routes to the
-  deck under the pointer); or the `Load...` native zip dialog per deck (M5e;
+- Drag and drop a track folder, zip or single audio file (M8) anywhere on
+  the window (routes to the
+  deck under the pointer); or the `Load...` native dialog per deck (M5e/M8;
   folders = drop/CLI only); or CLI arguments.
 
 ## 7. Project structure
@@ -269,6 +286,7 @@ trekker-ng/
 | **M5** | Polish: 3-band EQ, limiter, crossfader curves, settings (audio device, buffer size, pitch range, readout size), pitch-fader direction, nudge slider, native load dialog, window state (size + F11 fullscreen), mixer-column VU meters. | A friend can use it without you explaining. |
 | **M6** | Packaging: Windows build and Linux AppImage, docs, example tracks. | Ready for jamming with friends. |
 | **M7** | **Recording.** The Record button / `R` captures the master bus (post-EQ/crossfader/limiter, §4.1) to `recordings/` next to the exe as `trekker-ng-YYYYMMDD-HHMMSS.mp3` - MP3 CBR 320 kbps via the `libmp3lame` DLL loaded at runtime, with automatic WAV fallback (`ma_encoder`) when the DLL is missing or the sample rate is not MPEG-1 (32/44.1/48 kHz). Realtime-safe (§4.7): the callback only copies into a preallocated ring, a writer thread encodes; the drop counter reports a disk that fell behind. | You record a full mix while playing, the file plays back with zero glitches and an empty drop counter - and a copy of the app without the lame DLL still records (WAV). |
+| **M8** | **Single-file tracks (flat).** Any file miniaudio decodes (WAV/FLAC/MP3/OGG, §5) loads as a flat track: title from the file name, the lane area drawn as an empty box with no stem toggles (§6), hot cues in a `<file>.cues.json` sidecar; the `Load...` dialog, drag & drop and the CLI accept audio files. | You drop a plain MP3 on a deck and play/beatmix it like any track - and a 1-stem stem track still shows the full stem UI. |
 
 Work on **one milestone at a time**. Do not start the next one until the current one builds, runs, and is committed. Every milestone ends with a fresh runnable build in `dist/` for the user to test (see §10.2).
 
@@ -285,8 +303,9 @@ Automated (engine, headless, no soundcard needed, render offline to a buffer):
 5. **Interpolator:** at rate 1.0 the output equals the input exactly (bit-identical for integer positions).
 6. **Realtime safety:** a debug build option that asserts there are no allocations in the callback (or review by inspection with a checklist).
 7. **Recording (M7):** the recorder's `push()` performs no heap allocations while armed (same allocation-hook check as 6); a known ramp pushed directly into the recorder and flushed to WAV decodes back with the exact frame count and content within s16 quantization; the MP3 round-trip (encode -> `ma_decoder` decode) checks length within the LAME encoder delay and skips cleanly when the lame DLL is absent.
+8. **Single-file tracks (M8):** loading a synthesized audio file directly through `loadTrack` yields a `flat` DeckData with exactly one filled stem (title from the file name, correct frames/sample rate, decoded content intact, three empty stems); hot cues round-trip through the `<file>.cues.json` sidecar without touching the audio file; a non-audio file fails with a decode error rather than a track-format error.
 
-Manual: listen test at ±10% on real music (the original exported song). It should sound like pitching a record, with no warble, phasing, or "digital" smear. M7: record a few minutes while mixing - the file plays back with no dropouts, the drop counter stays at zero, and without `libmp3lame-0.dll` beside the exe the same take saves as WAV instead.
+Manual: listen test at ±10% on real music (the original exported song). It should sound like pitching a record, with no warble, phasing, or "digital" smear. M7: record a few minutes while mixing - the file plays back with no dropouts, the drop counter stays at zero, and without `libmp3lame-0.dll` beside the exe the same take saves as WAV instead. M8: drop a plain MP3/FLAC on a deck - it plays with the flat layout (empty box in the lane area), and its hot cues survive a reload.
 
 ## 10. Rules for the agent
 

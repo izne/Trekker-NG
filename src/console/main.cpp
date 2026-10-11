@@ -1,6 +1,7 @@
 // Trekker-NG console front-end (pitch PoC, M1-M2).
 //
-// Loads one track (folder or .zip with meta.json + 4 stems), plays it
+// Loads one track (folder or .zip with meta.json + stems, or since M8 any
+// single audio file miniaudio decodes), plays it
 // through miniaudio with a shared playhead per SPEC §4.2, and offers
 // per-stem mutes plus Technics-style varispeed pitch via the keyboard.
 
@@ -63,7 +64,7 @@ void printUsage() {
         "Trekker-NG M2 (console)\n"
         "\n"
         "usage:\n"
-        "  trekker-ng <track.zip | track-folder> [options]\n"
+        "  trekker-ng <track.zip | track-folder | audio-file> [options]\n"
         "\n"
         "options:\n"
         "  --render <out.wav>  render offline to a WAV instead of playing (no soundcard)\n"
@@ -136,7 +137,7 @@ bool parseArgs(int argc, char** argv, Options& opt, std::string& err) {
         }
     }
     if (opt.track.empty()) {
-        err = "missing track path (folder or .zip)";
+        err = "missing track path (folder, .zip or audio file)";
         return false;
     }
     return true;
@@ -219,14 +220,18 @@ int runLive(const Options& opt, tng::Deck& deck, const tng::DeckData& data) {
     }
     SetConsoleCtrlHandler(consoleHandler, TRUE);
 
+    int presentStems = 0;
+    for (const tng::Stem& s : data.stems) {
+        if (s.frames > 0) ++presentStems;
+    }
     std::printf(
         "\n"
-        "loaded: %s%s%s | %u Hz | %d stems\n"
+        "loaded: %s%s%s | %u Hz | %d stem%s\n"
         "keys: Space play/pause | 1-4 stem toggle (Shift=solo) | A all on\n"
         "      =+] pitch up | -_[ pitch down (Shift = 0.01%%) | 0 reset | I interp | Q quit\n"
         "\n",
         data.title.c_str(), data.artist.empty() ? "" : " - ", data.artist.c_str(),
-        data.sampleRate, tng::Deck::kStemCount);
+        data.sampleRate, presentStems, presentStems == 1 ? "" : "s");
 
     int soloIdx = -1;
     bool dirty = true;
@@ -390,10 +395,16 @@ int main(int argc, char** argv) {
     if (!data.artist.empty()) std::printf(" - %s", data.artist.c_str());
     std::printf(" | %.1f BPM | %u Hz | %.1fs\n", data.bpm, data.sampleRate,
                 static_cast<double>(data.frames) / data.sampleRate);
-    for (int i = 0; i < tng::Deck::kStemCount; ++i) {
-        const tng::Stem& s = data.stems[static_cast<size_t>(i)];
-        std::printf("  stem %d: %-12s %s\n", i + 1, s.frames > 0 ? s.name.c_str() : "(silent)",
-                    s.frames > 0 ? "ok" : "-");
+    if (data.flat) {
+        // M8: single audio file - stem 1 only, the UI calls these flat.
+        std::printf("  flat track (single audio file, stem 1 only)\n");
+    } else {
+        for (int i = 0; i < tng::Deck::kStemCount; ++i) {
+            const tng::Stem& s = data.stems[static_cast<size_t>(i)];
+            std::printf("  stem %d: %-12s %s\n", i + 1,
+                        s.frames > 0 ? s.name.c_str() : "(silent)",
+                        s.frames > 0 ? "ok" : "-");
+        }
     }
 
     if (opt.render) {

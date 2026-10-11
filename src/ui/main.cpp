@@ -3,8 +3,8 @@
 //
 // Track loading runs on a worker thread (SPEC §4.7: prepared off-thread),
 // then publishTrack() swaps it in atomically; the audio callback adopts it on
-// the next block. Dropping a folder or .zip loads the deck under the drop
-// position (SPEC §6.156).
+// the next block. Dropping a folder, .zip or audio file (M8: single files
+// load as flat tracks) loads the deck under the drop position (SPEC §6.156).
 
 #include "deck_view.h"
 
@@ -211,7 +211,7 @@ int main(int argc, char** argv) {
         views[i].setReadoutSize(settings.vfdTimePitchSize); // M5e
     }
 
-    std::string status = "drop a track folder or .zip, or use Load...";
+    std::string status = "drop a track folder, .zip or audio file, or use Load...";
     bool statusError = false;
     std::array<std::optional<std::future<tng::LoadResult>>, kDeckCount> loading;
     // M4d: the path each deck is currently loading/loaded from - threaded to
