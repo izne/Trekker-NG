@@ -34,6 +34,9 @@ struct DeckData {
     std::string title;
     std::string artist;
     float bpm = 0.0f; // 0 = unknown
+    // M9: true when bpm was auto-detected (SoundTouch BPMDetect) instead of
+    // coming from meta.json or a cues sidecar - the UI labels the readout.
+    bool bpmDetected = false;
     double firstBeatOffsetMs = 0.0;
     uint32_t sampleRate = 0;
     int64_t frames = 0; // all stems padded to this length

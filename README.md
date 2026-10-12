@@ -8,7 +8,7 @@ stem features of Traktor / djay, but for your own exported stems.
 Written in C++17. Windows first (MSYS2/MinGW64); the engine is kept portable
 so Linux/macOS can follow.
 
-**Current status: 7 of 8 complete** (M1-M5, M7 and M8; M6 packaging remains) -
+**Current status: 8 of 9 complete** (M1-M5, M7, M8 and M9; M6 packaging remains) -
 M4a/M4b are in: the equal-power
 crossfader with line/master gains and a two-deck audio path in the engine,
 plus frame-accurate loops and cue points (parse + persistence). M4c adds the
@@ -46,7 +46,11 @@ the audio callback only copies into a preallocated ring, a writer thread
 encodes, and the drop counter reports a disk that fell behind. M8 adds
 **single-file tracks**: any audio file miniaudio decodes loads directly as a
 flat one-stem track (lane area as an empty box, hot cues in a `.cues.json`
-sidecar next to the file). The project
+sidecar next to the file). M9 adds **BPM auto-detection**: a track whose BPM
+is unknown (a flat file, or a `meta.json` without `bpm`) gets its tempo
+filled on load via SoundTouch `BPMDetect`, flagged as detected in the UI
+status line and the console - so the bar counter and quick loops light up
+on plain MP3s too. The project
 is governed by [`SPEC.md`](SPEC.md).
 
 ![Trekker-NG mix mode with the settings window open: two decks with waveform lanes, VFD time/BPM readouts, hot cues and loops, and the mixer column (VU meters beside the A/B faders, 3-band EQ, crossfader curve, master)](docs/ui-m5g.jpg)
@@ -61,6 +65,7 @@ is governed by [`SPEC.md`](SPEC.md).
 | **M6** | Packaging: Windows build, Linux AppImage, docs, example tracks | planned |
 | **M7** | Recording: master-bus MP3 capture (`libmp3lame` DLL) with WAV fallback into `recordings/` | done |
 | **M8** | Single-file tracks: any audio file as a flat one-stem track (lane area drawn as an empty box) | done |
+| **M9** | BPM auto-detection: SoundTouch `BPMDetect` fills an unknown BPM (flat files, `meta.json` without `bpm`), so quick loops work on plain audio | done |
 
 ## Features
 
@@ -89,6 +94,11 @@ is governed by [`SPEC.md`](SPEC.md).
   with an enclosing folder; `meta.json` supplies title/artist/BPM/stem colors.
   M8: any audio file (WAV, FLAC, MP3, OGG) also loads directly as a *flat*
   one-stem track (see below).
+- **BPM auto-detection (M9)** - a track with no known BPM (flat file, or a
+  `meta.json` without `bpm`) has its tempo filled on load by SoundTouch
+  `BPMDetect`, analyzed from the first stem; the UI status line and the
+  console mark it as detected, and an explicit `bpm` in a `.cues.json`
+  sidecar wins over detection (and survives cue edits).
 - **Cue points & loops (engine)** - cues load from `meta.json` and persist
   edits (folder tracks rewrite `meta.json`, zip tracks and M8 single files get
   a `.cues.json` sidecar next to the archive/file); loops wrap on the exact crossing sample with
@@ -103,7 +113,8 @@ is governed by [`SPEC.md`](SPEC.md).
   through the existing cue persistence.
 - **Loops with UI (M4d)** - `In`/`Out`/`On`/`Exit` buttons (lit when set) plus
   `I`/`O`/`L`/`Shift+L` keys, and quick loops of 1/2/4/8/16 beats from the
-  playhead via buttons or `Alt+1`..`Alt+5` (needs a BPM; out clamps at the
+  playhead via buttons or `Alt+1`..`Alt+5` (needs a BPM - from `meta.json`, a
+  sidecar, or auto-detected since M9; out clamps at the
   track end). Activation guards reject incomplete or inverted point pairs.
 - **Pitch range & nudge (M4d/M5e/M5f/M5g)** - a button under the fader toggles the
   fader range between ±10 % and ±16 % (the ±8 % step is deferred; M5c
@@ -171,10 +182,11 @@ is governed by [`SPEC.md`](SPEC.md).
   font (DSEG7) on a dark inset, cyan like a vacuum-fluorescent display;
   everything else keeps the regular UI font. The big time+pitch row's size
   is a setting (M5e, 12..32 px, default 20).
-- **Self-contained download** - `trekker-ng.exe` + `SDL2.dll` only (everything
-  else, including the C++ runtime, is statically linked); `libmp3lame-0.dll`
-  rides along for MP3 recording (M7, runtime-loaded - without it recordings
-  are WAV).
+- **Self-contained download** - `trekker-ng.exe` + the runtime DLLs it needs:
+  `SDL2.dll`, `libSoundTouch-1.dll` and the MinGW C++ runtime
+  (`libstdc++-6.dll`, `libgcc_s_seh-1.dll`, `libwinpthread-1.dll`) - no
+  MSYS2 install required to run; `libmp3lame-0.dll` rides along for MP3
+  recording (M7, runtime-loaded - without it recordings are WAV).
 
 ## Quick start
 
@@ -198,6 +210,7 @@ In a MINGW64 shell:
 
 ```
 pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
+pacman -S mingw-w64-x86_64-soundtouch  # M9: BPM auto-detection (required)
 pacman -S mingw-w64-x86_64-lame      # optional, M7: MP3 recording (else WAV)
 ```
 
@@ -209,9 +222,12 @@ Then, inside the project directory (also MINGW64 shell):
 ```
 
 The runnable result is `dist/` with `trekker-ng.exe` (UI), `trekker-console.exe`
-and `SDL2.dll` - plus `libmp3lame-0.dll` when installed (M7: MP3 recording;
-without it the recorder falls back to WAV). Failing tests block the build, so
-a `dist/` build is known-good.
+and the runtime DLLs: `SDL2.dll`, `libSoundTouch-1.dll` (M9: BPM detection;
+pacman's SoundTouch links the MinGW C++ runtime dynamically, so
+`libstdc++-6.dll`, `libgcc_s_seh-1.dll` and `libwinpthread-1.dll` ship too)
+- plus `libmp3lame-0.dll` when installed (M7: MP3 recording; without it the
+recorder falls back to WAV). Failing tests block the build, so a `dist/`
+build is known-good.
 
 ## Running the example track
 
@@ -403,7 +419,9 @@ Libraries (SPEC §3): **miniaudio** (device, decode, WAV encode), **miniz**
 (UI, vendored) + **SDL2** (window/GL, from pacman). M7 adds **libmp3lame**
 (MP3 encoding through `libmp3lame-0.dll`, loaded at runtime so it is not a
 build dependency; LGPL 2.1 - the license ships as
-`docs/LGPL-2.1-libmp3lame.txt` in release zips). The VFD readouts use
+`docs/LGPL-2.1-libmp3lame.txt` in release zips). M9 adds **SoundTouch**
+(BPM auto-detection, from pacman; LGPL 2.1 - `libSoundTouch-1.dll` and
+`docs/LGPL-2.1-soundtouch.txt` ship in release zips). The VFD readouts use
 **DSEG7 Classic** by Keshikan (SIL OFL 1.1, embedded in the exe; the license
 ships as `docs/OFL-DSEG.txt` in release zips).
 
@@ -441,6 +459,13 @@ synthesized in memory:
     the three silent stems), hot cues round-trip through the
     `.cues.json` sidecar without touching the audio file, a corrupt
     sidecar is ignored, and a non-audio file fails with a decode error
+11. **BPM auto-detection (M9)** - synthesized kick trains at 80/128/174 BPM
+    detect to the right tempo or a small-integer ratio of it (the
+    octave/triplet ambiguity of periodic material), the real-music case
+    decodes `examples/magnat.zip` and lands within 1 BPM of its own
+    `meta.json` (skipped when examples/ is absent), silence and sub-second
+    audio detect nothing, a flat kick WAV loads with `bpmDetected` set, and
+    a sidecar `bpm` wins over detection and survives cue edits
 
 Manual acceptance (SPEC §9): listen at ±10 % on real music - it should sound
 like pitching a record, with no warble, phasing, or digital smear.

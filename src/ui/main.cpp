@@ -269,7 +269,7 @@ int main(int argc, char** argv) {
         tng::Deck& d = decks[activeDeck];
         const tng::DeckData* td = d.track();
         if (!td || td->bpm <= 0.0f) {
-            setStatus("quick loop: track has no BPM in meta.json", true);
+            setStatus("quick loop: track has no BPM (meta.json / sidecar / detection)", true);
             return;
         }
         if (!d.setQuickLoop(beats)) setStatus("quick loop: not possible here", true);
@@ -360,12 +360,18 @@ int main(int argc, char** argv) {
         if (!deviceUp) startDevice(rate);
 
         const tng::DeckData* d = decks[di].track();
-        char buf[400];
-        std::snprintf(buf, sizeof(buf), "loaded %s: %s%s%s | %u Hz | %.1f s%s",
+        char bpmTxt[40] = "";
+        if (d->bpm > 0.0f) { // M9: label auto-detected numbers as such
+            std::snprintf(bpmTxt, sizeof(bpmTxt), " | %.1f BPM%s", d->bpm,
+                          d->bpmDetected ? " (auto-detected)" : "");
+        }
+        char buf[440];
+        std::snprintf(buf, sizeof(buf), "loaded %s: %s%s%s | %u Hz | %.1f s%s%s",
                       deckName(di), d->artist.c_str(),
                       d->artist.empty() ? "" : " - ", d->title.c_str(), d->sampleRate,
                       static_cast<double>(d->frames) / static_cast<double>(d->sampleRate),
-                      recStoppedForRate ? " (recording stopped: rate change)" : "");
+                      recStoppedForRate ? " (recording stopped: rate change)" : "",
+                      bpmTxt);
         setStatus(buf, !deviceUp);
     };
 

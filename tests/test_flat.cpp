@@ -8,6 +8,7 @@
 
 #include "testutil.h"
 #include "track_loader.h"
+#include "wav_fixture.h"
 
 #include <cmath>
 #include <cstdint>
@@ -27,38 +28,6 @@ struct TempFlat {
         std::filesystem::remove(base + ".cues.json", ec);
     }
 };
-
-void writeU16(std::ostream& o, uint16_t v) {
-    o.put(static_cast<char>(v & 0xFF));
-    o.put(static_cast<char>((v >> 8) & 0xFF));
-}
-
-void writeU32(std::ostream& o, uint32_t v) {
-    writeU16(o, static_cast<uint16_t>(v & 0xFFFF));
-    writeU16(o, static_cast<uint16_t>(v >> 16));
-}
-
-// Minimal 16-bit PCM stereo WAV (PCM + interleaved s16 is what
-// decodeStem's ma_decoder reads back exactly).
-void writeWavStereo(const std::string& path, uint32_t fs,
-                    const std::vector<int16_t>& pcm) {
-    std::ofstream f(path, std::ios::binary);
-    const uint32_t dataBytes = static_cast<uint32_t>(pcm.size() * 2);
-    f.write("RIFF", 4);
-    writeU32(f, 36 + dataBytes);
-    f.write("WAVE", 4);
-    f.write("fmt ", 4);
-    writeU32(f, 16);
-    writeU16(f, 1);                     // PCM
-    writeU16(f, 2);                     // stereo
-    writeU32(f, fs);
-    writeU32(f, fs * 2 * 2);            // byte rate
-    writeU16(f, 2 * 2);                 // block align
-    writeU16(f, 16);                    // bits per sample
-    f.write("data", 4);
-    writeU32(f, dataBytes);
-    for (int16_t s : pcm) writeU16(f, static_cast<uint16_t>(s));
-}
 
 // 440 Hz sine at amplitude 0.5, interleaved L=R.
 std::vector<int16_t> sinePcm(uint32_t fs, uint32_t frames) {
@@ -84,7 +53,7 @@ TEST_CASE("flat: a plain audio file loads as a one-stem flat track (SPEC 5)") {
     TempFlat f("flat_track_test.wav");
     const uint32_t fs = 44100;
     const uint32_t frames = 1000;
-    writeWavStereo(f.base, fs, sinePcm(fs, frames));
+    tutil::writeWavStereo(f.base, fs, sinePcm(fs, frames));
 
     tng::LoadResult res = tng::loadTrack(f.base);
     REQUIRE_MESSAGE(res.ok(), res.error.c_str());
@@ -117,7 +86,7 @@ TEST_CASE("flat: a plain audio file loads as a one-stem flat track (SPEC 5)") {
 
 TEST_CASE("flat: cues round-trip through the .cues.json sidecar (SPEC 5/9.8)") {
     TempFlat f("flat_cues_test.wav");
-    writeWavStereo(f.base, 44100, sinePcm(44100, 200));
+    tutil::writeWavStereo(f.base, 44100, sinePcm(44100, 200));
 
     {
         std::ofstream sc(f.base + ".cues.json", std::ios::binary | std::ios::trunc);

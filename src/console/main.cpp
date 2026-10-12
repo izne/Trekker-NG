@@ -393,7 +393,8 @@ int main(int argc, char** argv) {
 
     std::printf("track: %s", data.title.c_str());
     if (!data.artist.empty()) std::printf(" - %s", data.artist.c_str());
-    std::printf(" | %.1f BPM | %u Hz | %.1fs\n", data.bpm, data.sampleRate,
+    std::printf(" | %.1f BPM%s | %u Hz | %.1fs\n", data.bpm,
+                data.bpmDetected ? " (detected)" : "", data.sampleRate,
                 static_cast<double>(data.frames) / data.sampleRate);
     if (data.flat) {
         // M8: single audio file - stem 1 only, the UI calls these flat.

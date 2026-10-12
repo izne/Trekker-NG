@@ -1,5 +1,6 @@
 #include "track_loader.h"
 
+#include "bpm_detect.h"
 #include "json.hpp"
 #include "miniaudio.h"
 
@@ -232,6 +233,41 @@ void parseCueArray(const json& arr, std::vector<tng::Cue>& out) {
 // (same shape as the zip sidecar) - the audio file itself is never written.
 // Anything the decoder rejects (text files, broken audio) fails here with a
 // decode error rather than a track-format error.
+
+// M9: a cues sidecar may also carry "bpm" - the number a previous load
+// auto-detected (or the user hand-wrote). Fills the track's bpm only when
+// it has none: meta.json stays the producer's truth, the sidecar the
+// fallback for tracks without one. Extra keys survive cue edits because
+// saveCues round-trips the existing document (see below).
+void applySidecarExtras(const json& scDoc, tng::DeckData& d) {
+    if (scDoc.contains("cues") && scDoc["cues"].is_array()) {
+        parseCueArray(scDoc["cues"], d.cues);
+    }
+    if (d.bpm <= 0.0f && scDoc.contains("bpm") && scDoc["bpm"].is_number()) {
+        const float bpm = static_cast<float>(scDoc["bpm"].get<double>());
+        if (bpm > 0.0f) {
+            d.bpm = bpm; // already known - not "detected now", flag stays false
+        }
+    }
+}
+
+// M9: tracks that carry no tempo (flat files, meta.json without "bpm") get
+// one analyzed from their first filled stem. Loader-thread only - the stem
+// is fully decoded in RAM (SPEC §4.7). Sets bpmDetected for the UI label.
+void detectBpmIfNeeded(tng::DeckData& d) {
+    if (d.bpm > 0.0f) return;
+    for (const tng::Stem& s : d.stems) {
+        if (s.frames <= 0 || s.data.empty()) continue;
+        // Stem data is interleaved stereo by contract (SPEC §5).
+        const float bpm = tng::detectBpm(s.data.data(), s.frames, 2, d.sampleRate);
+        if (bpm > 0.0f) {
+            d.bpm = bpm;
+            d.bpmDetected = true;
+        }
+        return; // first filled stem only
+    }
+}
+
 tng::LoadResult loadFlatTrack(const fs::path& path) {
     tng::LoadResult result;
     std::string err;
@@ -262,12 +298,12 @@ tng::LoadResult loadFlatTrack(const fs::path& path) {
         const std::string scText((std::istreambuf_iterator<char>(sc)),
                                  std::istreambuf_iterator<char>());
         const json scDoc = json::parse(scText, nullptr, false);
-        // Corrupt/incomplete sidecar: no cues (same rule as zip tracks).
-        if (!scDoc.is_discarded() && scDoc.is_object() && scDoc.contains("cues") &&
-            scDoc["cues"].is_array()) {
-            parseCueArray(scDoc["cues"], data->cues);
+        // Corrupt/incomplete sidecar: ignored (same rule as zip tracks).
+        if (!scDoc.is_discarded() && scDoc.is_object()) {
+            applySidecarExtras(scDoc, *data);
         }
     }
+    detectBpmIfNeeded(*data); // M9: flat files carry no meta.json bpm
 
     result.data = std::move(data);
     return result;
@@ -349,9 +385,8 @@ LoadResult loadTrack(const std::filesystem::path& path) {
                                      std::istreambuf_iterator<char>());
             const json scDoc = json::parse(scText, nullptr, false);
             // Corrupt/incomplete sidecar: keep the meta.json cues (SPEC §4.5).
-            if (!scDoc.is_discarded() && scDoc.is_object() && scDoc.contains("cues") &&
-                scDoc["cues"].is_array()) {
-                parseCueArray(scDoc["cues"], data->cues);
+            if (!scDoc.is_discarded() && scDoc.is_object()) {
+                applySidecarExtras(scDoc, *data); // M9: also picks up "bpm"
             }
         }
     }
@@ -431,6 +466,7 @@ LoadResult loadTrack(const std::filesystem::path& path) {
 
     data->sampleRate = rate;
     data->frames = frames;
+    detectBpmIfNeeded(*data); // M9: meta.json without "bpm" gets one analyzed
     result.data = std::move(data);
     return result;
 }
@@ -512,11 +548,24 @@ bool saveCues(const std::filesystem::path& trackPath, const std::vector<Cue>& cu
             return fail("cannot replace " + pathText(metaPath) + ": " + ec.message());
         }
     } else {
-        // Zip track: sidecar next to the archive; the zip itself stays
+        // Zip/flat track: sidecar next to the track; the track itself stays
         // read-only (loadTrack prefers the sidecar over meta.json's cues).
-        if (!setCuesInMeta("{}", cues, text, &err)) return fail(err); // "{}" is valid
+        // M9: start from the existing sidecar when it parses as an object,
+        // so extra keys - like a detected "bpm" - survive a cue edit; a
+        // missing or corrupt sidecar starts from the empty document.
+        std::string base = "{}";
         fs::path sidecar = trackPath;
         sidecar += ".cues.json";
+        {
+            std::ifstream in(sidecar, std::ios::binary);
+            if (in) {
+                const std::string oldText((std::istreambuf_iterator<char>(in)),
+                                          std::istreambuf_iterator<char>());
+                const json oldDoc = json::parse(oldText, nullptr, false);
+                if (!oldDoc.is_discarded() && oldDoc.is_object()) base = oldText;
+            }
+        }
+        if (!setCuesInMeta(base, cues, text, &err)) return fail(err);
         std::ofstream out(sidecar, std::ios::binary | std::ios::trunc);
         if (!out) return fail("cannot write file: " + pathText(sidecar));
         out << text;

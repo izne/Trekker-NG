@@ -34,6 +34,7 @@ Origin: tracker / Buzz / Reason background. A song is a set of channels, and a D
 | Build | CMake (single `CMakeLists.txt`, dependencies via `FetchContent` or vendored single headers) |
 | Audio I/O and decoding | **miniaudio** (single header, public domain). Use `ma_decoder` for decoding and `ma_device` for output |
 | MP3 encoding (M7) | **libmp3lame** DLL, loaded at runtime (`LoadLibrary`, no link-time dependency; LGPL - the DLL and its license travel in the release). WAV fallback via miniaudio's `ma_encoder` (WAV is the only format miniaudio can encode) |
+| BPM auto-detection (M9) | **SoundTouch** `BPMDetect` (pacman `mingw-w64-x86_64-soundtouch`, LGPL-2.1 - the DLL, its MinGW C++ runtime dependencies and its license travel in the release). Fills a track's `bpm` when `meta.json` omits it or the track is flat (§5, §8) |
 | UI | **Dear ImGui** + SDL2 (OpenGL3 backend). Immediate-mode, minimal code |
 | JSON | nlohmann/json (or any single-header equivalent) |
 | ZIP reading | **miniz** (single file, public domain), for `.zip` tracks |
@@ -47,7 +48,7 @@ Origin: tracker / Buzz / Reason background. A song is a set of channels, and a D
 - Use `mingw-w64-x86_64-*` packages (not `ucrt64`). If a package is missing, tell the user the exact `pacman -S` command instead of installing silently.
 - Build with CMake + Ninja (`-G Ninja`), compiler `gcc`/`g++` from the path above. Don't use MSVC-style commands or flags.
 - Use only the `MINGW64` shell consistently. Don't mix packages from other MSYS2 environments.
-- Libraries that aren't in pacman (miniaudio, Dear ImGui, nlohmann/json, miniz, doctest/Catch2) are vendored or fetched with CMake `FetchContent`. SDL2 comes from pacman (`mingw-w64-x86_64-SDL2`).
+- Libraries that aren't in pacman (miniaudio, Dear ImGui, nlohmann/json, miniz, doctest/Catch2) are vendored or fetched with CMake `FetchContent`. SDL2 and SoundTouch come from pacman (`mingw-w64-x86_64-SDL2`, `mingw-w64-x86_64-soundtouch`).
 
 **Architecture rule:** the engine (`src/engine/`) must have **no UI dependency** and compile as a static library. The UI (`src/ui/`) only talks to the engine through a small thread-safe API.
 
@@ -150,15 +151,15 @@ mytrack/
 ```
 
 - 1 to 4 stems are accepted in v1 (missing stems are silent). The number is fixed at 4 in the UI.
-- Beat grid in v1 = constant BPM plus a first-beat offset (the producer knows both from the DAW).
+- Beat grid in v1 = constant BPM plus a first-beat offset (the producer knows both from the DAW). M9: when the producer doesn't (`meta.json` omits `bpm`, or the track is flat), the loader auto-detects the BPM on load via SoundTouch `BPMDetect` and labels it as detected; a detected track's `first_beat_offset` stays 0, so bars may start mid-phrase, but 4/8/16-beat quick loops still line up.
 - Unknown fields must be ignored (forward compatibility). Missing optional fields get defaults.
 - Write `docs/FORMAT.md` describing the format so third parties can create tracks.
 
 **Single-file tracks (M8, "flat"):** any other regular file that the
 decoder accepts (WAV, FLAC, MP3, OGG Vorbis - whatever miniaudio reads,
 mono or stereo, decoded to stereo) loads directly as a one-stem track:
-title = file name stem, artist empty, bpm 0 (unknown), no `meta.json`.
-The loader flags it `flat` and the UI keeps the stem-mode geometry: the
+title = file name stem, artist empty, bpm 0 (auto-detected on load, M9),
+no `meta.json`. The loader flags it `flat` and the UI keeps the stem-mode geometry: the
 composite waveform at its usual height, an empty placeholder box where the
 stem lanes would be, and no stem toggles (§6); the bar/BPM row shows
 dashes when there is no beat grid. Hot cues persist in a
@@ -287,6 +288,7 @@ trekker-ng/
 | **M6** | Packaging: Windows build and Linux AppImage, docs, example tracks. | Ready for jamming with friends. |
 | **M7** | **Recording.** The Record button / `R` captures the master bus (post-EQ/crossfader/limiter, §4.1) to `recordings/` next to the exe as `trekker-ng-YYYYMMDD-HHMMSS.mp3` - MP3 CBR 320 kbps via the `libmp3lame` DLL loaded at runtime, with automatic WAV fallback (`ma_encoder`) when the DLL is missing or the sample rate is not MPEG-1 (32/44.1/48 kHz). Realtime-safe (§4.7): the callback only copies into a preallocated ring, a writer thread encodes; the drop counter reports a disk that fell behind. | You record a full mix while playing, the file plays back with zero glitches and an empty drop counter - and a copy of the app without the lame DLL still records (WAV). |
 | **M8** | **Single-file tracks (flat).** Any file miniaudio decodes (WAV/FLAC/MP3/OGG, §5) loads as a flat track: title from the file name, the lane area drawn as an empty box with no stem toggles (§6), hot cues in a `<file>.cues.json` sidecar; the `Load...` dialog, drag & drop and the CLI accept audio files. | You drop a plain MP3 on a deck and play/beatmix it like any track - and a 1-stem stem track still shows the full stem UI. |
+| **M9** | **BPM auto-detection.** A track whose `bpm` is 0 - a flat file, or a zip/folder whose `meta.json` omits it - gets its BPM filled on load by SoundTouch `BPMDetect` (§5), analyzed from the first filled stem; the result is flagged `bpmDetected` (UI status line and console print say "detected"). A `<file>.cues.json` sidecar may carry an explicit `"bpm"` that wins over detection and round-trips through cue edits. Quick loops (1/2/4/8/16) light up as soon as a BPM is known. | You drop a plain MP3 of a 128 BPM track on a deck and the VFD reads ~128, quick loops snap to beats, and the status line says the BPM was auto-detected. |
 
 Work on **one milestone at a time**. Do not start the next one until the current one builds, runs, and is committed. Every milestone ends with a fresh runnable build in `dist/` for the user to test (see §10.2).
 
@@ -304,8 +306,9 @@ Automated (engine, headless, no soundcard needed, render offline to a buffer):
 6. **Realtime safety:** a debug build option that asserts there are no allocations in the callback (or review by inspection with a checklist).
 7. **Recording (M7):** the recorder's `push()` performs no heap allocations while armed (same allocation-hook check as 6); a known ramp pushed directly into the recorder and flushed to WAV decodes back with the exact frame count and content within s16 quantization; the MP3 round-trip (encode -> `ma_decoder` decode) checks length within the LAME encoder delay and skips cleanly when the lame DLL is absent.
 8. **Single-file tracks (M8):** loading a synthesized audio file directly through `loadTrack` yields a `flat` DeckData with exactly one filled stem (title from the file name, correct frames/sample rate, decoded content intact, three empty stems); hot cues round-trip through the `<file>.cues.json` sidecar without touching the audio file; a non-audio file fails with a decode error rather than a track-format error.
+9. **BPM auto-detection (M9):** `detectBpm` on synthesized kick trains at 80/128/174 BPM returns a tempo within 1 BPM of the source or a small-integer ratio of it (the documented octave/triplet ambiguity of envelope autocorrelation on perfectly periodic material), and the real-music acceptance decodes `examples/magnat.zip` and lands within 1 BPM of the 128 from its own `meta.json` (skipped when examples/ is absent); silence and sub-second audio detect nothing; a flat kick WAV loads with `bpmDetected` set and bpm ≈ 128; a sidecar `"bpm"` wins over detection and survives a cue-edit save round-trip.
 
-Manual: listen test at ±10% on real music (the original exported song). It should sound like pitching a record, with no warble, phasing, or "digital" smear. M7: record a few minutes while mixing - the file plays back with no dropouts, the drop counter stays at zero, and without `libmp3lame-0.dll` beside the exe the same take saves as WAV instead. M8: drop a plain MP3/FLAC on a deck - it plays with the flat layout (empty box in the lane area), and its hot cues survive a reload.
+Manual: listen test at ±10% on real music (the original exported song). It should sound like pitching a record, with no warble, phasing, or "digital" smear. M7: record a few minutes while mixing - the file plays back with no dropouts, the drop counter stays at zero, and without `libmp3lame-0.dll` beside the exe the same take saves as WAV instead. M8: drop a plain MP3/FLAC on a deck - it plays with the flat layout (empty box in the lane area), and its hot cues survive a reload. M9: drop an MP3 with no `meta.json` and no sidecar `bpm` - the status line shows the detected BPM and the quick-loop buttons become clickable.
 
 ## 10. Rules for the agent
 

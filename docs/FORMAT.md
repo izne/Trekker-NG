@@ -53,7 +53,7 @@ matched by filename, so the folder name does not matter.
 | `format_version` | number | no | 1 | Bumped only on breaking changes |
 | `title` | string | no | track file/folder name | Display title |
 | `artist` | string | no | `""` | Display artist |
-| `bpm` | number | no | 0 (unknown) | Constant tempo of the track |
+| `bpm` | number | no | 0 (auto-detected on load, M9) | Constant tempo of the track |
 | `first_beat_offset_ms` | number | no | 0 | Time of the first beat from track start |
 | `stems` | array | **yes** | - | 1..4 entries, played in order |
 | `stems[].name` | string | no | `Stem N` | Display name |
@@ -65,7 +65,10 @@ matched by filename, so the folder name does not matter.
 - **Unknown fields are ignored** - new optional fields can be added without
   breaking older builds (forward compatibility).
 - The beat grid in v1 is `bpm` + `first_beat_offset_ms` (the producer knows
-  both from the DAW); no freeform beat markers yet.
+  both from the DAW); no freeform beat markers yet. M9: a missing or zero
+  `bpm` is **auto-detected on load** (SoundTouch `BPMDetect`, analyzed from
+  the first stem); a detected track keeps `first_beat_offset_ms` = 0, so its
+  bars count from the track start, not necessarily from a downbeat.
 
 ## Single-file tracks (M8, "flat")
 
@@ -73,7 +76,8 @@ Any regular file that is not a `.zip` is treated as a **flat track**: the
 whole file is stem 1, loaded directly (whatever miniaudio decodes - WAV,
 FLAC, MP3, OGG). There is no `meta.json`, so:
 
-- `title` = the file name without extension, `artist` = `""`, `bpm` = 0,
+- `title` = the file name without extension, `artist` = `""`, `bpm` = 0
+  (auto-detected on load, M9; a sidecar `bpm` wins, see below),
 - stems 2..3..4 are the documented "missing = silent" case; the UI keeps the
   stem-mode geometry - composite waveform at its usual height, an empty
   placeholder box where the stem lanes would be, stem toggles hidden (the deck's
@@ -99,6 +103,13 @@ When the user edits cue points in the app:
 On load, `cues` come from `meta.json`; a valid sidecar with a `"cues"` array
 overrides them. A missing or corrupt sidecar is ignored (the `meta.json` cues
 stand). Loop points are session-only and are never persisted.
+
+A sidecar may also carry an optional top-level `"bpm"` number (M9): it is
+used instead of the `meta.json` value (or of auto-detection when there is
+none), and cue-edit saves preserve it - the writer round-trips every key of
+an existing sidecar. For a flat track with no sidecar `bpm`, the tempo is
+auto-detected on load and the detected value lives only in memory for that
+session (nothing is written next to the audio file).
 
 ## Example: zipping a track
 

@@ -36,7 +36,10 @@ The track must be a folder or `.zip` containing `meta.json` + 1..4 stereo stem
 files (WAV/FLAC/MP3). Since M8 a single audio file (whatever miniaudio
 decodes - WAV, FLAC, MP3, OGG) also loads directly, as a *flat* one-stem
 track (lane area drawn as an empty box, no stem toggles, hot cues in a
-`.cues.json` sidecar next to the file). See `docs/FORMAT.md` for the format
+`.cues.json` sidecar next to the file). Since M9 a track whose BPM is
+unknown (a flat file, or a `meta.json` without `bpm`) gets its tempo
+**auto-detected** on load (SoundTouch); the status line and the console
+mark it as detected. See `docs/FORMAT.md` for the format
 and `examples/magnat.zip` in the repository for a ready-made track.
 
 Loading runs on a worker thread and hot-swaps into the running engine - no
@@ -51,12 +54,12 @@ device restarts once at that rate.
 | `Play` / `Pause` | transport (at track end, Play restarts from 0) |
 | `CUE` | the full main-cue behavior (SPEC §4.5): press **while playing** to jump to the main cue and pause; press **while stopped** to set the cue at the current position and preview it - hold to keep playing, release to return to the cue and stop. The main cue is session-only and defaults to the track start |
 | hot cues `1`-`8` | 8 cue slots per deck: click an empty slot to store the playhead, click a filled one to jump (declicked), right-click to clear. Edits save immediately (folder tracks rewrite `meta.json`, zips and M8 single files get a `.cues.json` sidecar) |
-| loop `In` `Out` `On` `Exit` + `1`-`16` | manual loop control: `In`/`Out` set points at the playhead (lit when set), `On` toggles the loop (needs a valid pair), `Exit` clears it. The numbered buttons make a quick loop of that many beats starting at the playhead (needs a BPM in `meta.json`; near the track end the out point clamps to the end) |
+| loop `In` `Out` `On` `Exit` + `1`-`16` | manual loop control: `In`/`Out` set points at the playhead (lit when set), `On` toggles the loop (needs a valid pair), `Exit` clears it. The numbered buttons make a quick loop of that many beats starting at the playhead (needs a BPM - from `meta.json`, a sidecar `bpm`, or auto-detected since M9; near the track end the out point clamps to the end) |
 | `VU` meter | per-deck peak bar of that deck's own output: green, yellow above 0.7, red above 0.9. Where it stands follows the mode (M5g): in the deck's right column in Single mode; in the mixer column beside the deck's own A/B line fader in Mix mode (deck A's meter left of its fader, deck B's right of its own) |
 | `1` `2` `3` `4` checkboxes | toggle that stem (colored as in `meta.json`); hidden on M8 flat tracks, which have a single stem |
 | pitch fader | vertical, ±10 % by default; direction is a setting (M5c): reversed like DJ gear (**up = slower, down = faster**, the default) or straight (up = faster); the button under the fader toggles the range **±10 % / ±16 %** (persisted) |
 | nudge slider | (M5e, beside the pitch fader) a momentary **pitch bend**: click above or below the center handle and hold - pitch bends by an offset from the pitch playing at that moment, toward the clicked side (minimum 0.5 %; direction follows the fader setting, so reversed/down = faster), the time readout shows the bent value, and while held the handle shows the offset itself (center = the current pitch); release restores the pitch as it was when you pressed and the handle returns to center (M5f centered the handle, M5g made the bend relative). Replaced the M4d `Shift`+click nudge |
-| time / bar / pitch | remaining time with a minus sign (`-02:33.75`, total - position) and pitch % next to it, `bar 2.3 | 128.0 BPM` below (bar.beat aligned to the beat grid via `first_beat_offset_ms`, plus the effective BPM; a track without a beat grid - any flat/M8 file - shows `bar -.- | -- BPM` instead, M8 r2) - all render as cyan 7-segment VFD readouts on a dark inset (DSEG7 font); text like `bar`, `BPM` and `+`/`%` keeps the regular UI font. M5e: the time+pitch row sits below Play/CUE at a configurable size (settings, 12-32 px, default 20); the bar row stays at 15 px |
+| time / bar / pitch | remaining time with a minus sign (`-02:33.75`, total - position) and pitch % next to it, `bar 2.3 | 128.0 BPM` below (bar.beat aligned to the beat grid via `first_beat_offset_ms`, plus the effective BPM; auto-detected tempos (M9) count bars from the file start since the first-beat offset stays 0; a track with no BPM at all shows `bar -.- | -- BPM`, M8 r2) - all render as cyan 7-segment VFD readouts on a dark inset (DSEG7 font); text like `bar`, `BPM` and `+`/`%` keeps the regular UI font. M5e: the time+pitch row sits below Play/CUE at a configurable size (settings, 12-32 px, default 20); the bar row stays at 15 px |
 | `Load...` | opens the native file dialog for this deck (zips and, since M8, audio files) |
 | `[record]` / `REC mm:ss` | (M7) start recording the master bus; while recording the button turns into a red elapsed-time counter - click it again (or press `R`) to stop and save |
 
@@ -106,7 +109,7 @@ Mix mode shows:
 | `I` / `O` | set loop in / loop out at the playhead (active deck) |
 | `L` | toggle the loop on / off (a pair must be set; the guard rejects incomplete or inverted points) |
 | `Shift+L` | exit and clear the loop |
-| `Alt+1` … `Alt+5` | quick loop of 1 / 2 / 4 / 8 / 16 beats from the playhead (active deck; needs a BPM) |
+| `Alt+1` … `Alt+5` | quick loop of 1 / 2 / 4 / 8 / 16 beats from the playhead (active deck; needs a BPM - `meta.json`, sidecar, or auto-detected, M9) |
 | `M` | toggle Single / Mix mode (persisted - next boot restores it) |
 | `R` | start / stop recording the master bus into `recordings/` (M7) |
 | `F11` | toggle fullscreen (borderless; persisted - next boot restores it) |
@@ -177,7 +180,7 @@ argument) with extra keys and the offline renderer:
 | `Q` / `Esc` | quit |
 
 Pitch range is ±10 %; the status line shows pitch, effective BPM, position and
-the 4 stem states.
+the 4 stem states. An auto-detected tempo (M9) is labeled `(auto-detected)`.
 
 ### Options (console only)
 

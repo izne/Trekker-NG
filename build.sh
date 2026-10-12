@@ -2,6 +2,7 @@
 # One-command build for Trekker-NG inside the MSYS2 MINGW64 environment.
 #   ./build.sh            build -> dist/{trekker-ng,trekker-console}.exe
 #                         + SDL2.dll (+ libmp3lame-0.dll when installed, M7)
+#                         + libSoundTouch-1.dll + the MinGW runtime it needs
 #   ./build.sh release    build + pack dist/trekker-ng-<VERSION>-win64.zip
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -43,10 +44,36 @@ else
        "(pacman -S mingw-w64-x86_64-lame)" >&2
 fi
 
+# M9: BPM auto-detection links SoundTouch (LGPL 2.1) - a build dependency
+# (CMake fails without it) and a runtime DLL like SDL2. CMake already
+# copies it next to the exes in build/; mirror it into dist/. The pacman
+# build of SoundTouch links the MinGW C++ runtime dynamically (our exes
+# link it statically), so its three runtime DLLs travel too - without
+# them the shipped dist/ fails to start on a machine that has no MSYS2
+# on PATH.
+ST_DLL="/d/msys64/mingw64/bin/libSoundTouch-1.dll"
+if [ -f "$ST_DLL" ]; then
+  cp -f "$ST_DLL" dist/libSoundTouch-1.dll
+else
+  echo "error: libSoundTouch-1.dll missing (pacman -S mingw-w64-x86_64-soundtouch)" >&2
+  exit 1
+fi
+for rt in libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll; do
+  if [ -f "/d/msys64/mingw64/bin/$rt" ]; then
+    cp -f "/d/msys64/mingw64/bin/$rt" "dist/$rt"
+  else
+    echo "error: $rt missing in /d/msys64/mingw64/bin (pacman -S mingw-w64-x86_64-toolchain)" >&2
+    exit 1
+  fi
+done
+
 echo
-echo "build OK -> dist/trekker-ng.exe + dist/trekker-console.exe + dist/SDL2.dll"
-echo "DLL dependencies of the UI (should be SDL2.dll + Windows system DLLs):"
+echo "build OK -> dist/trekker-ng.exe + dist/trekker-console.exe + runtime DLLs:" \
+     "SDL2, libSoundTouch-1, libstdc++-6, libgcc_s_seh-1, libwinpthread-1"
+echo "DLL dependencies of the UI:"
 objdump -p dist/trekker-ng.exe | grep "DLL Name" || true
+echo "DLL dependencies of libSoundTouch-1.dll:"
+objdump -p dist/libSoundTouch-1.dll | grep "DLL Name" || true
 
 # ---------------------------------------------------------------- release ---
 if [ "${1:-}" = "release" ]; then
@@ -67,14 +94,21 @@ if [ "${1:-}" = "release" ]; then
   if [ -f dist/libmp3lame-0.dll ]; then
     cp -f dist/libmp3lame-0.dll "$STAGE/"
   fi
+  cp -f dist/libSoundTouch-1.dll "$STAGE/"
+  cp -f dist/libstdc++-6.dll dist/libgcc_s_seh-1.dll dist/libwinpthread-1.dll "$STAGE/"
   cp -f README.md "$STAGE/"
   # DSEG7 (VFD readouts) is SIL OFL 1.1 - the license must travel with it.
-  # libmp3lame is LGPL 2.1 (runtime-loaded) - same rule, see SPEC §3.
+  # libmp3lame and SoundTouch are LGPL 2.1 - same rule, see SPEC §3.
   # One current screenshot (ui-m5g.jpg) - the single image the README shows.
   cp -f docs/FORMAT.md docs/USAGE.md docs/ui-m5g.jpg "$STAGE/docs/"
   cp -f third_party/fonts/OFL-DSEG.txt "$STAGE/docs/"
   if [ -f docs/LGPL-2.1-libmp3lame.txt ]; then
     cp -f docs/LGPL-2.1-libmp3lame.txt "$STAGE/docs/"
+  fi
+  # SoundTouch's LGPL text as installed by pacman (M9).
+  if [ -f /d/msys64/mingw64/share/licenses/soundtouch/COPYING.TXT ]; then
+    cp -f /d/msys64/mingw64/share/licenses/soundtouch/COPYING.TXT \
+          "$STAGE/docs/LGPL-2.1-soundtouch.txt"
   fi
   rm -f "$ZIP"
 
