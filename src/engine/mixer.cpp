@@ -33,7 +33,7 @@ Mixer::Mixer() noexcept {
 }
 
 void Mixer::process(const float* deckA, const float* deckB, float* out,
-                    uint32_t frameCount) noexcept {
+                    uint32_t frameCount, float* cueOut) noexcept {
     const float lineA = lineA_.load(std::memory_order_relaxed);
     const float lineB = lineB_.load(std::memory_order_relaxed);
     const float master = masterGain_.load(std::memory_order_relaxed);
@@ -83,18 +83,53 @@ void Mixer::process(const float* deckA, const float* deckB, float* out,
     const float stepB = frameCount > 0 ? (targetB - rampB_) / static_cast<float>(frameCount)
                                        : 0.0f;
 
+    // M10 (SPEC §4.8): the phones signal rides the same loop. PFL gains
+    // ramp across the block exactly like the line gains (no clicks); with
+    // cueOut == nullptr the ramps stay put and every line below the cue
+    // writes is the pre-M10 behavior, bit for bit.
+    const bool cue = cueOut != nullptr;
+    float pflTargetA = pflRampA_;
+    float pflTargetB = pflRampB_;
+    float stepPflA = 0.0f;
+    float stepPflB = 0.0f;
+    float mix = 0.0f;
+    float invMix = 1.0f;
+    bool cueClip = false;
+    if (cue) {
+        pflTargetA = pflA_.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
+        pflTargetB = pflB_.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
+        mix = phonesMix_.load(std::memory_order_relaxed);
+        invMix = 1.0f - mix;
+        if (frameCount > 0) {
+            stepPflA = (pflTargetA - pflRampA_) / static_cast<float>(frameCount);
+            stepPflB = (pflTargetB - pflRampB_) / static_cast<float>(frameCount);
+        }
+    }
+
     bool clipHit = false;
     if (deckB == nullptr) {
         // Single-deck path (console, legacy tests): no EQ stage, no
         // crossfader - the live UI always registers both decks and goes
         // through the two-deck path below. The master soft clip applies
-        // here too (M5b: it is the master stage).
+        // here too (M5b: it is the master stage). The cue tap reads the
+        // deck sample before `out` is written - deckA may alias out.
         for (uint32_t i = 0; i < frameCount; ++i) {
             rampA_ += stepA;
             const float gain = rampA_ * master;
             const uint32_t k = i * 2;
-            out[k] = softClip(deckA[k] * gain, clipHit);
-            out[k + 1] = softClip(deckA[k + 1] * gain, clipHit);
+            const float origL = deckA[k];
+            const float origR = deckA[k + 1];
+            const float outL = softClip(origL * gain, clipHit);
+            const float outR = softClip(origR * gain, clipHit);
+            out[k] = outL;
+            out[k + 1] = outR;
+            if (cue) {
+                // Pre-fader tap: single-deck mode has no EQ and the line
+                // gain stays out of the cue bus.
+                pflRampA_ += stepPflA;
+                cueOut[k] = softClip(origL * pflRampA_ * invMix + outL * mix, cueClip);
+                cueOut[k + 1] = softClip(origR * pflRampA_ * invMix + outR * mix, cueClip);
+            }
         }
     } else {
         for (uint32_t i = 0; i < frameCount; ++i) {
@@ -109,8 +144,20 @@ void Mixer::process(const float* deckA, const float* deckB, float* out,
             const float aR = eqA_.process(1, deckA[k + 1]);
             const float bL = eqB_.process(0, deckB[k]);
             const float bR = eqB_.process(1, deckB[k + 1]);
-            out[k] = softClip(aL * gainA + bL * gainB, clipHit);
-            out[k + 1] = softClip(aR * gainA + bR * gainB, clipHit);
+            const float outLS = softClip(aL * gainA + bL * gainB, clipHit);
+            const float outRS = softClip(aR * gainA + bR * gainB, clipHit);
+            out[k] = outLS;
+            out[k + 1] = outRS;
+            if (cue) {
+                // Post-EQ, pre-fader cue bus (aL/aR and bL/bR are the EQ
+                // outputs; line/crossfader gains are applied only above).
+                pflRampA_ += stepPflA;
+                pflRampB_ += stepPflB;
+                const float cueL = aL * pflRampA_ + bL * pflRampB_;
+                const float cueR = aR * pflRampA_ + bR * pflRampB_;
+                cueOut[k] = softClip(cueL * invMix + outLS * mix, cueClip);
+                cueOut[k + 1] = softClip(cueR * invMix + outRS * mix, cueClip);
+            }
         }
     }
     if (clipHit) clipFlag_.store(true, std::memory_order_relaxed);
@@ -119,6 +166,10 @@ void Mixer::process(const float* deckA, const float* deckB, float* out,
     // next block's step starts from a clean value.
     rampA_ = targetA;
     rampB_ = targetB;
+    if (cue) {
+        pflRampA_ = pflTargetA;
+        pflRampB_ = pflTargetB;
+    }
 }
 
 void Mixer::setLineGain(int deck, float gain) noexcept {
@@ -182,6 +233,28 @@ float Mixer::eqKnob(int deck, int band) const noexcept {
 void Mixer::setSampleRate(uint32_t fs) noexcept {
     eqA_.setSampleRate(fs);
     eqB_.setSampleRate(fs);
+}
+
+void Mixer::setPfl(int deck, bool on) noexcept {
+    if (deck == 0) {
+        pflA_.store(on, std::memory_order_relaxed);
+    } else {
+        pflB_.store(on, std::memory_order_relaxed);
+    }
+}
+
+bool Mixer::pfl(int deck) const noexcept {
+    return (deck == 0 ? pflA_ : pflB_).load(std::memory_order_relaxed);
+}
+
+void Mixer::setPhonesMix(float mix) noexcept {
+    if (mix < 0.0f) mix = 0.0f;
+    if (mix > 1.0f) mix = 1.0f;
+    phonesMix_.store(mix, std::memory_order_relaxed);
+}
+
+float Mixer::phonesMix() const noexcept {
+    return phonesMix_.load(std::memory_order_relaxed);
 }
 
 } // namespace tng

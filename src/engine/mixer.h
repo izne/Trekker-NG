@@ -34,14 +34,25 @@ namespace tng {
 // applies to both paths (it is the master stage). The live UI always
 // registers both decks (the two-deck path carries the EQ in both UI
 // modes).
+//
+// M10 headphone cue (SPEC §4.8): when `cueOut` is non-null, the same
+// block additionally produces the phones signal into it - per-deck PFL
+// (post-EQ, pre-fader, ~5 ms ramp like the line gains) summed into a cue
+// bus, then blended with the master output by phonesMix (0 = cue only,
+// 1 = master only) and soft-clipped like the master. `cueOut == nullptr`
+// keeps the pre-M10 code path exactly (console --render, tests without a
+// cue device). PFL/phones are UI-thread atomics; the ramps are
+// audio-thread-only state like rampA_/rampB_.
 class Mixer {
 public:
     Mixer() noexcept; // flat EQ knobs (0.5) on both decks
 
     // deckA may alias out (the console's offline render mixes in place:
     // each sample is read before it is written). deckB may be null.
+    // cueOut, when given, must not alias deckA/deckB/out and needs room
+    // for frameCount stereo frames.
     void process(const float* deckA, const float* deckB, float* out,
-                 uint32_t frameCount) noexcept;
+                 uint32_t frameCount, float* cueOut = nullptr) noexcept;
 
     void setLineGain(int deck, float gain) noexcept; // deck 0 = A, 1 = B; 0..1
     float lineGain(int deck) const noexcept;
@@ -71,6 +82,15 @@ public:
     // Feeds the EQ smoothing time; call before the device starts.
     void setSampleRate(uint32_t fs) noexcept;
 
+    // M10 headphone cue (SPEC §4.8): per-deck PFL (session-only, UI polls
+    // pfl() for the lit button) and the persistent PHONES blend -
+    // 0 = cue bus only, 1 = master only. Both are atomics; audible only
+    // when process() is given a cueOut buffer (a configured cue device).
+    void setPfl(int deck, bool on) noexcept;
+    bool pfl(int deck) const noexcept;
+    void setPhonesMix(float mix) noexcept;
+    float phonesMix() const noexcept;
+
 private:
     std::atomic<float> lineA_{1.0f};
     std::atomic<float> lineB_{1.0f};
@@ -79,12 +99,19 @@ private:
     std::atomic<bool> clipFlag_{false};          // M5b, relaxed
     std::atomic<float> masterGain_{0.7f}; // M1/M2 default until the master UI
     std::atomic<float> eqKnob_[2][Eq3::kBands];
+    std::atomic<bool> pflA_{false};           // M10, relaxed
+    std::atomic<bool> pflB_{false};           // M10, relaxed
+    std::atomic<float> phonesMix_{0.5f};      // M10: 0 = cue, 1 = master
 
     // Audio-thread-only state. Starts at 1.0 so single-deck mode (the
     // console and the pre-M4c UI) is steady from the very first sample -
     // the first two-deck block ramps to the equal-power center gains.
     float rampA_ = 1.0f;
     float rampB_ = 1.0f;
+    // M10: PFL gain ramps (start at 0 - the cue bus fades in over the
+    // first block it is rendered, never a click).
+    float pflRampA_ = 0.0f;
+    float pflRampB_ = 0.0f;
     Eq3 eqA_, eqB_;
 };
 

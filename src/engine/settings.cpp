@@ -32,6 +32,8 @@ void sanitize(Settings& s) {
     if (s.windowWidth > 7680) s.windowWidth = 7680;
     if (s.windowHeight < 480) s.windowHeight = 480;
     if (s.windowHeight > 4320) s.windowHeight = 4320;
+    if (s.phonesMix < 0.0f) s.phonesMix = 0.0f; // M10 PHONES knob
+    if (s.phonesMix > 1.0f) s.phonesMix = 1.0f;
 }
 
 } // namespace
@@ -51,6 +53,9 @@ std::string Settings::toJson() const {
     j["windowWidth"] = s.windowWidth;
     j["windowHeight"] = s.windowHeight;
     j["fullscreen"] = s.fullscreen;
+    j["cueDeviceOn"] = s.cueDeviceOn;
+    j["cueDevice"] = s.cueDeviceName;
+    j["phonesMix"] = s.phonesMix;
     return j.dump(2) + "\n";
 }
 
@@ -73,6 +78,9 @@ bool Settings::fromJson(const std::string& text) {
     windowWidth = j.value("windowWidth", windowWidth);
     windowHeight = j.value("windowHeight", windowHeight);
     fullscreen = j.value("fullscreen", fullscreen);
+    cueDeviceOn = j.value("cueDeviceOn", cueDeviceOn);
+    cueDeviceName = j.value("cueDevice", cueDeviceName);
+    phonesMix = j.value("phonesMix", phonesMix);
     sanitize(*this);
     return true;
 }

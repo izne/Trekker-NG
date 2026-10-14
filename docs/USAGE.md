@@ -75,15 +75,20 @@ Mix mode shows:
 - **deck A** (left) and **deck B** (right), each with its own transport,
   pitch fader, nudge slider and stem toggles (M5g: the VU meter moved out
   of the deck panel into the mixer column),
-- a **mixer column** between them: A/B line faders with the per-deck **VU
+- a **mixer column** between them: two **`PFL`** buttons (M10: one per
+  deck over its fader's column - lit orange while that deck feeds the
+  headphone cue bus; inert until a cue device is chosen in the settings),
+  A/B line faders with the per-deck **VU
   meters** beside them (M5g: deck A's meter stands left of its fader, deck
   B's right of its own), a per-deck **3-band EQ**
   (three thin vertical sliders labeled `lo / mid / hi` side by side: center
   = flat, top = +6 dB, bottom = kill; a square kill button under each band
   toggles kill and lights up while killed; clicking it again restores the
    level the band had before the kill. Right-click a slider resets
-   to flat), a crossfader (starts centered; right-click it to snap it back
-   to center) with a curve selector - `lin`
+   to flat), a **`phones`** slider (M10: the headphone blend, 0 = the cue
+   bus whatever PFL is lit, 1 = master - persisted like the master gain),
+   a crossfader (starts centered; right-click it to snap it back
+  to center) with a curve selector - `lin`
   (linear), `pw` (constant power, the default), `cut` (sharp cut: full
   volume until the last 5 % of the travel; persisted since M5c) - and the
   master gain plus a red `CLIP` light that flashes when
@@ -122,6 +127,7 @@ A small window (M5c) with, top to bottom:
 | Control | What it does |
 |---|---|
 | `audio device` | playback device dropdown from miniaudio's enumeration (`(default)` = system default); changing it restarts the audio device (brief dropout) |
+| `cue / headphones` | (M10) second output device for the headphone cue: `(none)` (default) = feature off (today's output exactly), `(default)` or a named device = cue via PFL/PHONES; changing it restarts the audio device |
 | `buffer size` | callback size in frames: 64 / 128 / 256 (default) / 512 / 1024; smaller = lower latency, more load; changing it restarts the audio device |
 | `pitch range` | ±10 % or ±16 % for both decks' faders (same value the per-deck button toggles) |
 | `reversed pitch fader` | checked (default) = DJ-style up = slower; unchecked = up = faster |
@@ -161,6 +167,29 @@ a red `REC mm:ss` counter; press it again (or `R`) to stop.
   disk, missing folder) stops the take and reports the reason.
 - Quitting (`Q` / `Esc`) finalizes the current file. Loading a track with
   a different sample rate stops a running take - the load status says so.
+
+### Headphone cue (M10)
+
+Listen to a deck in headphones before mixing it in - the classic PFL:
+
+- Pick a **cue device** in the settings (`cue / headphones`). `(none)` =
+  off: the PFL buttons light but send nothing and the master output is
+  exactly what M9 played. A selected device gets its own stream; a device
+  that fails to open never takes the master down (the status line says so).
+- **`PFL`** lights the deck into the phones: in Mix mode the button sits
+  in the mixer column over each fader, in Single mode it is the third
+  button beside Play/CUE on the deck panel. The tap is post-EQ and
+  pre-fader - you hear the EQ and cue a deck whose fader is fully closed -
+  and it ramps on/off over the block, never a click. PFL state is
+  session-only (both decks start unlit).
+- **`phones`** (Mix-mode mixer column, above the crossfader) blends what
+  the headphones play: 0 = the cue bus (the lit PFL deck), 1 = the master
+  (what the room hears), in between a mix of both. Persisted like the
+  master gain; defaults to centered (0.5).
+- The two sound cards run on independent clocks: the engine bridges them
+  with a short ring buffer, so a little drift shows as a slowly shifting
+  fill level over the hours rather than a glitch. Extreme cases drop a
+  whole block or play silence for it (counted, not clicked).
 
 ## Console front-end
 

@@ -19,6 +19,9 @@ TEST_CASE("settings: defaults") {
     CHECK(s.windowWidth == 1150);  // M5f: VU meters clear at this width
     CHECK(s.windowHeight == 660);
     CHECK(!s.fullscreen); // windowed by default
+    CHECK(!s.cueDeviceOn);     // M10: headphone cue off = pre-M10 output
+    CHECK(s.cueDeviceName.empty());
+    CHECK(s.phonesMix == doctest::Approx(0.5f)); // M10: PHONES centered
 }
 
 TEST_CASE("settings: json round-trip") {
@@ -34,6 +37,9 @@ TEST_CASE("settings: json round-trip") {
     a.windowWidth = 1920;
     a.windowHeight = 1080;
     a.fullscreen = true;
+    a.cueDeviceOn = true;                  // M10 headphone cue fields
+    a.cueDeviceName = "Headphones (USB Audio)";
+    a.phonesMix = 0.25f;
 
     tng::Settings b;
     REQUIRE(b.fromJson(a.toJson()));
@@ -48,6 +54,9 @@ TEST_CASE("settings: json round-trip") {
     CHECK(b.windowWidth == a.windowWidth);   // M5f window state
     CHECK(b.windowHeight == a.windowHeight);
     CHECK(b.fullscreen == a.fullscreen);
+    CHECK(b.cueDeviceOn == a.cueDeviceOn);   // M10: cue device round-trips
+    CHECK(b.cueDeviceName == a.cueDeviceName);
+    CHECK(b.phonesMix == doctest::Approx(a.phonesMix));
 }
 
 TEST_CASE("settings: corrupt or empty text keeps defaults") {
@@ -62,19 +71,21 @@ TEST_CASE("settings: corrupt or empty text keeps defaults") {
 TEST_CASE("settings: out-of-range values clamp on load") {
     tng::Settings s;
     REQUIRE(s.fromJson(R"({"bufferFrames": 48000, "pitchRangePct": 13.0,
-                            "xfCurve": 9, "masterGain": 1.5})"));
+                            "xfCurve": 9, "masterGain": 1.5, "phonesMix": 3.5})"));
     CHECK(s.bufferFrames == 1024);
     CHECK(s.pitchRangePct == 16.0f);
     CHECK(s.xfCurve == 2);
     CHECK(s.masterGain == doctest::Approx(1.0f));
+    CHECK(s.phonesMix == doctest::Approx(1.0f)); // M10 PHONES clamped high
 
     tng::Settings lo;
     REQUIRE(lo.fromJson(R"({"bufferFrames": 16, "pitchRangePct": 8.0,
-                             "xfCurve": -3, "masterGain": -0.2})"));
+                             "xfCurve": -3, "masterGain": -0.2, "phonesMix": -1.0})"));
     CHECK(lo.bufferFrames == 64);
     CHECK(lo.pitchRangePct == 10.0f);
     CHECK(lo.xfCurve == 0);
     CHECK(lo.masterGain == doctest::Approx(0.0f));
+    CHECK(lo.phonesMix == doctest::Approx(0.0f)); // ...and low
 
     tng::Settings sz;
     REQUIRE(sz.fromJson(R"({"vfdTimePitchSize": 96.0})"));

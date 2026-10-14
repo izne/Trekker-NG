@@ -19,6 +19,10 @@
 struct ImFont; // Dear ImGui, global scope (imgui.h)
 struct ImDrawList;
 
+namespace tng {
+class Mixer; // M10: PFL/phones context for the Single-mode PFL button
+}
+
 namespace tui {
 
 // M4display: DSEG7 VFD readout font, loaded once in main.cpp (null until
@@ -91,6 +95,14 @@ public:
         deck.setRate(1.0 + pitchPct_ / 100.0);
     }
 
+    // M10: PFL context for the Single-mode deck panel (Mix mode draws the
+    // button in the mixer column instead). Set once at startup; the mixer
+    // outlives the views.
+    void setMixerContext(tng::Mixer* mixer, int deckIndex) {
+        mixer_ = mixer;
+        deckIndex_ = deckIndex;
+    }
+
     // M5c: pitch fader direction (SPEC §4.3). true = DJ-style reversed
     // (up = slower, the historical default); false = up = faster.
     void setPitchReversed(bool reversed) { pitchReversed_ = reversed; }
@@ -133,6 +145,8 @@ private:
     std::filesystem::path trackPath_; // saveCues target for hot-cue edits
     std::string notice_;        // pending status line for main.cpp
     bool noticeErr_ = false;
+    tng::Mixer* mixer_ = nullptr; // M10: PFL button target (null = none)
+    int deckIndex_ = 0;           // M10: which mixer deck this view is
 };
 
 } // namespace tui

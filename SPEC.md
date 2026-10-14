@@ -62,6 +62,12 @@ Deck A: 4 stems ──(shared playhead, rate)──► stem gains ──► sum 
 Deck B: 4 stems ──(shared playhead, rate)──► stem gains ──► sum ─┘
 ```
 
+The per-deck EQ (M5a) sits inside the mixer stage between each deck's sum
+and the crossfader. Since **M10** each deck is additionally tapped there -
+post-EQ, pre-fader - into a **cue bus** that feeds a second, separately
+selectable audio device (headphones, §4.8); with no cue device configured
+the tap is inert and the output path is exactly as drawn.
+
 - **Recording (M7)** taps this master output (after EQ, crossfader, limiter -
   exactly what the soundcard plays): the audio callback only copies each block
   into a preallocated lock-free ring; a writer thread drains the ring and
@@ -111,6 +117,29 @@ The audio callback must **never**: allocate, lock a mutex, touch disk, log via `
 - UI-to-audio communication uses `std::atomic` values or a lock-free SPSC queue.
 - Buffer swaps (loading a new track) are done by preparing the new deck data off-thread, then publishing it with an atomic pointer swap. The old data is freed on a non-audio thread.
 - Process in float32 internally. Output buffer size is configurable (default 256 frames, with target latency under 15 ms where the OS allows); M5c makes it a persisted settings choice (64/128/256/512/1024).
+
+### 4.8 Headphone cue (M10)
+
+- **PFL (pre-fader listen):** a per-deck button (session-only, lit while
+  active) taps the deck's **post-EQ, pre-line-fader, pre-crossfader**
+  signal into a cue bus, so the track being prepared is heard in headphones
+  regardless of the faders. The PFL gain ramps like the stem/line gains
+  (~5 ms) so toggling never clicks.
+- **PHONES knob:** a persistent 0..1 blend in the mixer column - 0 = cue bus
+  only, 1 = master only (post-limiter), in between both. The blended stereo
+  signal is what reaches the headphones device.
+- **Second output device:** a separately selectable "cue / headphone device"
+  in the settings screen (miniaudio enumeration, `(none)` = feature off =
+  the pre-M10 output path exactly). When set, a second playback device
+  opens at the same sample rate and is fed from a preallocated lock-free
+  SPSC ring written by the master callback: the master path itself is
+  unchanged (still one render tick per block), the ring absorbs the two
+  devices' clock drift (a few ms per hour - harmless for monitoring the
+  other deck), the consumer zero-fills on underrun and the producer drops
+  the block on overrun (both counted). The cue device starts, stops and
+  restarts (settings changes, sample-rate changes) with the master device.
+- Realtime rules (§4.7) apply to both callbacks: the ring is atomics and
+  copies only - no allocation, locks, IO or logging.
 
 ## 5. Track format ("Trekker-NG track", v1)
 
@@ -206,12 +235,15 @@ rejects fails with a decode error, not a track-format error.
   (zip tracks and single audio files, M8; folders still arrive via
   drag & drop or the CLI).
 - **Settings screen** (M5c, `[settings]` next to the mode button): audio
-  device (miniaudio enumeration, default = system), buffer size, pitch
+  device (miniaudio enumeration, default = system), and since M10 a second
+  **cue / headphone device** dropdown (`(none)` default = feature off),
+  buffer size, pitch
   range, reversed-pitch-fader checkbox, boot mode, crossfader curve, master
   gain, and (M5e) the time+pitch readout size (12-32 px slider). Immediate
   apply + write-through save to `trekker-ng.json` next to
   the exe (nlohmann JSON, portable-style, same stack as meta.json); device
-  and buffer changes restart the audio device (brief dropout).
+  and buffer changes restart the audio device (brief dropout), which
+  re-opens the cue device too when one is configured (§4.8).
 - **Window state** (M5f): default 1150 x 660 (wide enough that the
   Mix-mode VU meters are never clipped), resizable. The windowed size and
   the fullscreen flag persist in the same `trekker-ng.json` and restore at
@@ -233,6 +265,13 @@ rejects fails with a decode error, not a track-format error.
   next to the exe, timestamped `trekker-ng-YYYYMMDD-HHMMSS.mp3` (or
   `.wav`); stopping finalizes the file in place, and quitting while
   recording stops it gracefully first.
+- **Headphone cue** (M10, §4.8): a lit `PFL` button per deck - in the
+  mixer column above that deck's faders in Mix mode, in the deck panel in
+  Single mode - plus one persistent `PHONES` cue/master mix slider in the
+  Mix-mode mixer column (above the crossfader). Both are inert until a cue
+  device is selected in the settings screen; with none selected the UI
+  shows the buttons but they change nothing audible (the master path is
+  untouched).
 - **Waveform:** overview (summed stems plus per-stem lanes; flat tracks,
   §5: overview plus an empty box in the lanes' place) with a playhead;
   pre-computed min/max peaks on load, click-to-seek. A stretch goal is a
@@ -289,6 +328,7 @@ trekker-ng/
 | **M7** | **Recording.** The Record button / `R` captures the master bus (post-EQ/crossfader/limiter, §4.1) to `recordings/` next to the exe as `trekker-ng-YYYYMMDD-HHMMSS.mp3` - MP3 CBR 320 kbps via the `libmp3lame` DLL loaded at runtime, with automatic WAV fallback (`ma_encoder`) when the DLL is missing or the sample rate is not MPEG-1 (32/44.1/48 kHz). Realtime-safe (§4.7): the callback only copies into a preallocated ring, a writer thread encodes; the drop counter reports a disk that fell behind. | You record a full mix while playing, the file plays back with zero glitches and an empty drop counter - and a copy of the app without the lame DLL still records (WAV). |
 | **M8** | **Single-file tracks (flat).** Any file miniaudio decodes (WAV/FLAC/MP3/OGG, §5) loads as a flat track: title from the file name, the lane area drawn as an empty box with no stem toggles (§6), hot cues in a `<file>.cues.json` sidecar; the `Load...` dialog, drag & drop and the CLI accept audio files. | You drop a plain MP3 on a deck and play/beatmix it like any track - and a 1-stem stem track still shows the full stem UI. |
 | **M9** | **BPM auto-detection.** A track whose `bpm` is 0 - a flat file, or a zip/folder whose `meta.json` omits it - gets its BPM filled on load by SoundTouch `BPMDetect` (§5), analyzed from the first filled stem; the result is flagged `bpmDetected` (UI status line and console print say "detected"). A `<file>.cues.json` sidecar may carry an explicit `"bpm"` that wins over detection and round-trips through cue edits. Quick loops (1/2/4/8/16) light up as soon as a BPM is known. | You drop a plain MP3 of a 128 BPM track on a deck and the VFD reads ~128, quick loops snap to beats, and the status line says the BPM was auto-detected. |
+| **M10** | **Headphone cue (PFL).** A lit PFL button per deck taps that deck post-EQ/pre-fader into a cue bus (§4.8); a persisted PHONES slider blends cue ↔ master into a **separately selectable headphone device** (settings, `(none)` default = feature off, so the pre-M10 output path stays bit-identical). The two devices are bridged by a preallocated lock-free ring (drop on overrun, silence on underrun, both counted); the cue device starts/stops/restarts with the master. | You set a second output device, hit PFL on the track you are preparing and hear it in the headphones while the other deck plays the room - and with no cue device configured, nothing behaves differently than before. |
 
 Work on **one milestone at a time**. Do not start the next one until the current one builds, runs, and is committed. Every milestone ends with a fresh runnable build in `dist/` for the user to test (see §10.2).
 
@@ -307,8 +347,9 @@ Automated (engine, headless, no soundcard needed, render offline to a buffer):
 7. **Recording (M7):** the recorder's `push()` performs no heap allocations while armed (same allocation-hook check as 6); a known ramp pushed directly into the recorder and flushed to WAV decodes back with the exact frame count and content within s16 quantization; the MP3 round-trip (encode -> `ma_decoder` decode) checks length within the LAME encoder delay and skips cleanly when the lame DLL is absent.
 8. **Single-file tracks (M8):** loading a synthesized audio file directly through `loadTrack` yields a `flat` DeckData with exactly one filled stem (title from the file name, correct frames/sample rate, decoded content intact, three empty stems); hot cues round-trip through the `<file>.cues.json` sidecar without touching the audio file; a non-audio file fails with a decode error rather than a track-format error.
 9. **BPM auto-detection (M9):** `detectBpm` on synthesized kick trains at 80/128/174 BPM returns a tempo within 1 BPM of the source or a small-integer ratio of it (the documented octave/triplet ambiguity of envelope autocorrelation on perfectly periodic material), and the real-music acceptance decodes `examples/magnat.zip` and lands within 1 BPM of the 128 from its own `meta.json` (skipped when examples/ is absent); silence and sub-second audio detect nothing; a flat kick WAV loads with `bpmDetected` set and bpm ≈ 128; a sidecar `"bpm"` wins over detection and survives a cue-edit save round-trip.
+10. **Headphone cue (M10):** the PFL tap is pre-fader - a deck at line gain 0 with the crossfader fully away still reaches the cue bus while the master carries none of it; PFL toggles ramp without clicks (same discontinuity threshold as 3); the PHONES blend at 0 equals the cue bus and at 1 equals the master; the SPSC cue ring round-trips frames and handles over- and underrun; `Settings` round-trips `cue_device`.
 
-Manual: listen test at ±10% on real music (the original exported song). It should sound like pitching a record, with no warble, phasing, or "digital" smear. M7: record a few minutes while mixing - the file plays back with no dropouts, the drop counter stays at zero, and without `libmp3lame-0.dll` beside the exe the same take saves as WAV instead. M8: drop a plain MP3/FLAC on a deck - it plays with the flat layout (empty box in the lane area), and its hot cues survive a reload. M9: drop an MP3 with no `meta.json` and no sidecar `bpm` - the status line shows the detected BPM and the quick-loop buttons become clickable.
+Manual: listen test at ±10% on real music (the original exported song). It should sound like pitching a record, with no warble, phasing, or "digital" smear. M7: record a few minutes while mixing - the file plays back with no dropouts, the drop counter stays at zero, and without `libmp3lame-0.dll` beside the exe the same take saves as WAV instead. M8: drop a plain MP3/FLAC on a deck - it plays with the flat layout (empty box in the lane area), and its hot cues survive a reload. M9: drop an MP3 with no `meta.json` and no sidecar `bpm` - the status line shows the detected BPM and the quick-loop buttons become clickable. M10: select a headphone device in settings, hit PFL on deck B - the cans play B while the room keeps hearing A; clearing the dropdown restores the old behavior exactly.
 
 ## 10. Rules for the agent
 

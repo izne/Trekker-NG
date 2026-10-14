@@ -205,10 +205,12 @@ int main(int argc, char** argv) {
     mixer.setCrossfader(mixMode ? 0.0f : -1.0f);
     mixer.setXfCurve(settings.xfCurve);
     mixer.setMasterGain(settings.masterGain);
+    mixer.setPhonesMix(settings.phonesMix); // M10: persisted PHONES knob
     for (int i = 0; i < kDeckCount; ++i) {
         views[i].setPitchRange(decks[i], settings.pitchRangePct);
         views[i].setPitchReversed(settings.pitchReversed);
         views[i].setReadoutSize(settings.vfdTimePitchSize); // M5e
+        views[i].setMixerContext(&mixer, i); // M10: Single-mode PFL button
     }
 
     std::string status = "drop a track folder, .zip or audio file, or use Load...";
@@ -281,8 +283,11 @@ int main(int argc, char** argv) {
         // M5c: named device from settings ("" = system default).
         const char* devName =
             settings.deviceName.empty() ? nullptr : settings.deviceName.c_str();
+        // M10: second output (SPEC §4.8); null = feature off, exactly the
+        // pre-M10 output path.
+        const char* cueDev = settings.cueDeviceOn ? settings.cueDeviceName.c_str() : nullptr;
         if (!device.init(&decks[0], &decks[1], &mixer, rate, periodFrames, devName, &err,
-                         &recorder)) {
+                         &recorder, cueDev)) {
             setStatus("audio init failed: " + err, true);
             return false;
         }
@@ -293,6 +298,11 @@ int main(int argc, char** argv) {
         }
         deviceUp = true;
         devRate = rate;
+        // M10: a cue-side problem never takes the master down - surface it
+        // instead (master init/start already succeeded above).
+        if (!device.cueError().empty()) {
+            setStatus("cue device: " + device.cueError(), true);
+        }
         return true;
     };
 
@@ -660,6 +670,42 @@ int main(int argc, char** argv) {
             constexpr float kVuW = 22.0f;
             const float vuGap = 4.0f;
             const float abGap = ImGui::GetStyle().ItemSpacing.x;
+            // M10 (SPEC §4.8/§6): per-deck PFL buttons on their own row,
+            // each over its fader's column. Lit = that deck feeds the
+            // headphone cue bus; without a cue device in settings they
+            // change nothing audible (tooltip says so).
+            {
+                const float pflY = ImGui::GetCursorPosY();
+                const float pflBaseX = ImGui::GetCursorPosX(); // group edge
+                const float pflX0 = pflBaseX + kVuW + vuGap; // over fader A
+                for (int d = 0; d < kDeckCount; ++d) {
+                    ImGui::SetCursorPos(ImVec2(pflX0 + d * (kLineSliderW + abGap), pflY));
+                    ImGui::PushID(d);
+                    const bool on = mixer.pfl(d);
+                    if (on) {
+                        ImGui::PushStyleColor(ImGuiCol_Button,
+                                              ImVec4(0.95f, 0.62f, 0.05f, 1.0f));
+                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                                              ImVec4(1.00f, 0.72f, 0.15f, 1.0f));
+                        ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+                                              ImVec4(1.00f, 0.80f, 0.30f, 1.0f));
+                    }
+                    if (ImGui::Button("PFL", ImVec2(kLineSliderW, 0.0f))) {
+                        mixer.setPfl(d, !on);
+                    }
+                    if (on) ImGui::PopStyleColor(3);
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("deck %s to the headphones%s", deckName(d),
+                                          settings.cueDeviceOn
+                                              ? ""
+                                              : " (no cue device set in settings)");
+                    }
+                    ImGui::PopID();
+                }
+                const float pflH = ImGui::GetItemRectSize().y;
+                ImGui::SetCursorPos(
+                    ImVec2(pflBaseX, pflY + pflH + ImGui::GetStyle().ItemSpacing.y));
+            }
             const ImVec2 abTop = ImGui::GetCursorScreenPos(); // group left edge
             const float labelH = ImGui::GetTextLineHeightWithSpacing();
             const ImVec2 sliderTop(abTop.x + kVuW + vuGap, abTop.y + labelH);
@@ -785,6 +831,24 @@ int main(int argc, char** argv) {
                     // M5g: no tooltip - the band slider's own tooltip
                     // already reports the killed/normal state.
                 }
+            }
+
+            // M10 (SPEC §4.8/§6): PHONES - the headphone output's cue/master
+            // blend. 0 = the cue bus (whatever PFL is lit), 1 = master, in
+            // between both; persisted like the master gain.
+            ImGui::Spacing();
+            ImGui::TextDisabled("phones");
+            float phones = mixer.phonesMix();
+            ImGui::SetNextItemWidth(kMixerWidth - 24.0f);
+            ImGui::SliderFloat("##phones", &phones, 0.0f, 1.0f, "%.2f",
+                               ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemActive()) mixer.setPhonesMix(phones);
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                settings.phonesMix = mixer.phonesMix();
+                saveSettings();
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("headphone blend: 0 = cue (PFL), 1 = master");
             }
 
             ImGui::Spacing();
@@ -960,6 +1024,42 @@ int main(int argc, char** argv) {
                                 saveSettings();
                                 applyDevice();
                             }
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                // M10 (SPEC §4.8/§6): headphone/cue output. (none) = the
+                // feature off = the pre-M10 output path exactly; selecting
+                // anything re-inits the device with the second stream.
+                ImGui::TextDisabled("cue / headphones");
+                const char* cuePreview =
+                    !settings.cueDeviceOn
+                        ? "(none)"
+                        : (settings.cueDeviceName.empty() ? "(default)"
+                                                          : settings.cueDeviceName.c_str());
+                if (ImGui::BeginCombo("##cuedev", cuePreview)) {
+                    const bool offSel = !settings.cueDeviceOn;
+                    if (ImGui::Selectable("(none)", offSel) && !offSel) {
+                        settings.cueDeviceOn = false;
+                        saveSettings();
+                        applyDevice();
+                    }
+                    const bool defSel =
+                        settings.cueDeviceOn && settings.cueDeviceName.empty();
+                    if (ImGui::Selectable("(default)", defSel) && !defSel) {
+                        settings.cueDeviceOn = true;
+                        settings.cueDeviceName.clear();
+                        saveSettings();
+                        applyDevice();
+                    }
+                    for (size_t i = 1; i < deviceNames.size(); ++i) {
+                        const bool sel =
+                            settings.cueDeviceOn && settings.cueDeviceName == deviceNames[i];
+                        if (ImGui::Selectable(deviceNames[i].c_str(), sel) && !sel) {
+                            settings.cueDeviceOn = true;
+                            settings.cueDeviceName = deviceNames[i];
+                            saveSettings();
+                            applyDevice();
                         }
                     }
                     ImGui::EndCombo();

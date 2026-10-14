@@ -29,6 +29,14 @@ struct Settings {
     int windowHeight = 660;   // clamp 480..4320
     bool fullscreen = false;  // borderless (SDL fullscreen-desktop) at boot
 
+    // M10 headphone cue (SPEC §4.8): cueDeviceOn opens the second output;
+    // cueDeviceName is "" for the system default or a
+    // listPlaybackDevices() name (meaningful only while cueDeviceOn).
+    // phonesMix is the persistent PHONES knob: 0 = cue bus, 1 = master.
+    bool cueDeviceOn = false;
+    std::string cueDeviceName;
+    float phonesMix = 0.5f;
+
     // JSON text (round-trip core). fromJson keeps the defaults for any
     // missing/invalid field and returns false only when the text is not
     // parseable JSON at all (corrupt file = ignore, like the cue sidecars).

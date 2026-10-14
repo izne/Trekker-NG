@@ -1,6 +1,7 @@
 #include "deck_view.h"
 
 #include "imgui.h"
+#include "mixer.h"     // M10: Single-mode PFL button (mixer_->pfl/setPfl)
 #include "track_loader.h" // saveCues after hot-cue edits (M4d)
 
 #include <algorithm>
@@ -362,6 +363,29 @@ const char* DeckView::draw(tng::Deck& deck, bool active, bool showVU) {
             deck.requestSeek(mainCueFrame_); // release: back to the cue
             deck.setPlaying(false);
             cuePreviewing_ = false;
+        }
+        // M10: PFL for Single mode (showVU is the Single-mode flag; Mix
+        // mode draws the button in the mixer column instead, SPEC §4.8/§6).
+        // Lit = this deck feeds the headphone cue bus - audible only when
+        // a cue device is configured in the settings screen.
+        if (showVU && mixer_ != nullptr) {
+            ImGui::SameLine();
+            const bool pflOn = mixer_->pfl(deckIndex_);
+            if (pflOn) {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.95f, 0.62f, 0.05f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                                      ImVec4(1.00f, 0.72f, 0.15f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+                                      ImVec4(1.00f, 0.80f, 0.30f, 1.0f));
+            }
+            if (ImGui::Button("PFL", ImVec2(60.0f, 0.0f))) {
+                mixer_->setPfl(deckIndex_, !pflOn);
+            }
+            if (pflOn) ImGui::PopStyleColor(3);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("listen in the headphones (needs a cue device "
+                                  "in settings)");
+            }
         }
         // M5e: the readout rows moved below the Play/CUE line - at the
         // bigger time+pitch size the combined row grew ~60 px wider than

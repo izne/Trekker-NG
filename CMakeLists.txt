@@ -28,6 +28,7 @@ add_library(trekker_engine STATIC
   src/engine/deck.cpp
   src/engine/eq.cpp
   src/engine/mixer.cpp
+  src/engine/cue_ring.cpp
   src/engine/settings.cpp
   src/engine/track_loader.cpp
   src/engine/audio_device.cpp
@@ -63,6 +64,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     src/engine/deck.cpp
     src/engine/eq.cpp
     src/engine/mixer.cpp
+    src/engine/cue_ring.cpp
     src/engine/settings.cpp
     src/engine/track_loader.cpp
     src/engine/recorder.cpp
@@ -146,6 +148,7 @@ if(TREKKER_BUILD_TESTS)
     tests/test_recorder.cpp
     tests/test_flat.cpp
     tests/test_bpm.cpp
+    tests/test_cue.cpp
   )
   target_include_directories(trekker_tests PRIVATE third_party tests)
   target_link_libraries(trekker_tests PRIVATE trekker_engine)
@@ -162,6 +165,7 @@ if(TREKKER_BUILD_TESTS)
       tests/test_recorder.cpp
       tests/test_flat.cpp
       tests/test_bpm.cpp
+      tests/test_cue.cpp
       PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra"
     )
   endif()

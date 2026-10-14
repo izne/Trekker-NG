@@ -8,7 +8,7 @@ stem features of Traktor / djay, but for your own exported stems.
 Written in C++17. Windows first (MSYS2/MinGW64); the engine is kept portable
 so Linux/macOS can follow.
 
-**Current status: 8 of 9 complete** (M1-M5, M7, M8 and M9; M6 packaging remains) -
+**Current status: 9 of 10 complete** (M1-M5, M7, M8, M9 and M10; M6 packaging remains) -
 M4a/M4b are in: the equal-power
 crossfader with line/master gains and a two-deck audio path in the engine,
 plus frame-accurate loops and cue points (parse + persistence). M4c adds the
@@ -50,10 +50,13 @@ sidecar next to the file). M9 adds **BPM auto-detection**: a track whose BPM
 is unknown (a flat file, or a `meta.json` without `bpm`) gets its tempo
 filled on load via SoundTouch `BPMDetect`, flagged as detected in the UI
 status line and the console - so the bar counter and quick loops light up
-on plain MP3s too. The project
+on plain MP3s too. M10 adds **headphone cue (PFL)**: a second, selectable
+output device carries a cue bus - per-deck `PFL` buttons tap the deck
+post-EQ and pre-fader, a `PHONES` knob blends cue against master - and with
+no cue device configured the output is exactly the pre-M10 one. The project
 is governed by [`SPEC.md`](SPEC.md).
 
-![Trekker-NG mix mode with the settings window open: two decks with waveform lanes, VFD time/BPM readouts, hot cues and loops, and the mixer column (VU meters beside the A/B faders, 3-band EQ, crossfader curve, master)](docs/ui-m5g.jpg)
+![Trekker-NG mix mode with the settings window open: the cue / headphones device dropdown under the audio device, two decks with waveform lanes, VFD time/BPM readouts, hot cues and loops, and the mixer column (PFL buttons above the A/B line faders with their VU meters, 3-band EQ, phones blend, crossfader curve, master)](docs/ui-m10.png)
 
 | # | Milestone | Status |
 |---|-----------|--------|
@@ -66,6 +69,7 @@ is governed by [`SPEC.md`](SPEC.md).
 | **M7** | Recording: master-bus MP3 capture (`libmp3lame` DLL) with WAV fallback into `recordings/` | done |
 | **M8** | Single-file tracks: any audio file as a flat one-stem track (lane area drawn as an empty box) | done |
 | **M9** | BPM auto-detection: SoundTouch `BPMDetect` fills an unknown BPM (flat files, `meta.json` without `bpm`), so quick loops work on plain audio | done |
+| **M10** | Headphone cue: a second output device for PFL per deck (post-EQ, pre-fader) with a cue/master PHONES blend | done |
 
 ## Features
 
@@ -124,8 +128,9 @@ is governed by [`SPEC.md`](SPEC.md).
   direction, release snaps back (it replaced the M4d Shift+click
   nudge). M5g: the bend is an offset added to the pitch playing at the
   press, so the handle shows that offset (center = the current pitch).
-- **Settings screen (M5c/M5e)** - `[settings]` next to the mode button opens a
+- **Settings screen (M5c/M5e/M10)** - `[settings]` next to the mode button opens a
   window with the audio device (miniaudio enumeration, default = system),
+  the cue/headphone device (M10, `(none)` = off),
   buffer size (64..1024, default 256), pitch range, a reversed-pitch-fader
   checkbox (default on, DJ-style up = slower), boot mode, crossfader curve,
   master gain and the time+pitch readout size (12..32 px, M5e). Every change
@@ -160,6 +165,16 @@ is governed by [`SPEC.md`](SPEC.md).
   take stops). While recording the button is a red `REC mm:ss` counter;
   quitting finalizes the file, a track-induced sample-rate change stops
   the take (noted in the load status).
+- **Headphone cue / PFL (M10)** - pick a second output device in the
+  settings (`cue / headphones`, `(none)` = off); each deck's `PFL` button
+  (in the Mix-mode mixer column, or on the deck panel in Single mode) sends
+  that deck to the headphones tapped post-EQ and pre-fader - the cue works
+  with the fader fully closed - and the `PHONES` slider blends the phones
+  between the cue bus (0) and the master (1). Without a cue device the
+  buttons light but change nothing audible: the master output is exactly
+  the pre-M10 path. The two devices run independently (a lock-free ring
+  bridges them; small clock drift shows as a slowly shifting fill level,
+  with overrun/underrun counted rather than glitching).
 - **Offline render mode** - render to WAV without a soundcard (`--render`),
   used for tests and automation.
 - **ImGui UI with drag & drop** - drop a track folder, `.zip` or audio file
@@ -390,9 +405,12 @@ src/
     deck.{h,cpp}             4 stems, one playhead, smoothing + declick, loops
     interpolate.{h,cpp}      pure Hermite / linear interpolator
     mixer.{h,cpp}            line/cross/master gains, per-deck EQ, selectable
-                             crossfader curve, soft-clip limiter
+                             crossfader curve, soft-clip limiter, PFL/phones
+                             cue bus (M10)
+    cue_ring.{h,cpp}         M10 lock-free SPSC ring bridging the master and
+                             cue output devices (drop/zero-fill, both counted)
     eq.{h,cpp}               3-band EQ: LR4 band-split, Traktor kill/boost curve
-    settings.{h,cpp}         trekker-ng.json load/save (M5c, M5e fields),
+    settings.{h,cpp}         trekker-ng.json load/save (M5c, M5e, M10 fields),
                              clamped fields
     track_loader.{h,cpp}     folder/zip/audio file -> DeckData, meta.json,
                              cue persistence (+ .cues.json sidecars, M8 flat)
@@ -404,7 +422,7 @@ src/
 tests/               doctest suite (SPEC §9), run automatically by build.sh
 tools/               manual acceptance helpers (test-track generator)
 examples/            example track
-docs/                FORMAT.md, USAGE.md, ui-m5g.jpg (UI screenshot)
+docs/                FORMAT.md, USAGE.md, ui-*.png + ui-m5g.jpg (UI screenshots)
 third_party/         vendored: miniaudio, miniz, nlohmann/json, doctest, imgui,
                      fonts/DSEG7Classic-Regular.ttf (VFD readouts, SIL OFL 1.1)
 ```
@@ -466,6 +484,14 @@ synthesized in memory:
     `meta.json` (skipped when examples/ is absent), silence and sub-second
     audio detect nothing, a flat kick WAV loads with `bpmDetected` set, and
     a sidecar `bpm` wins over detection and survives cue edits
+12. **Headphone cue (M10)** - PFL feeds the cue bus with the fader closed
+    (pre-fader) but follows the EQ (post-EQ), PFL and PHONES moves ramp
+    across the block instead of stepping, `phonesMix` 0/0.5/1 blend
+    cue/average/master exactly, `cueOut == nullptr` leaves the master
+    bit-identical to pre-M10, the single-deck (console) path cues with
+    `deckA` aliasing the output, the `CueRing` round-trips, drops an
+    over-capacity block whole and zero-fills short pops (counting both),
+    and `Settings` round-trips/clamps the cue device fields
 
 Manual acceptance (SPEC §9): listen at ±10 % on real music - it should sound
 like pitching a record, with no warble, phasing, or digital smear.
