@@ -112,12 +112,24 @@ if(MINGW)
 endif()
 
 # --- ImGui UI front-end (M3, SPEC §6/§8) ---
+
+# M11: the About box shows the version; VERSION is the single source (the
+# release zip is named from it in build.sh, which re-runs this configure
+# on every build, so the define stays in sync).
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" TREKKER_VERSION)
+string(STRIP "${TREKKER_VERSION}" TREKKER_VERSION)
+
 add_executable(trekker-ng
   src/ui/main.cpp
   src/ui/deck_view.cpp
+  src/ui/about.cpp
 )
   # comdlg32: GetOpenFileNameW zip picker for the Load... button (M5e).
   target_link_libraries(trekker-ng PRIVATE trekker_engine imgui ole32 opengl32 comdlg32)
+  # M11: third_party (miniaudio/json headers) + SoundTouch for the About
+  # box; TREKKER_VERSION from the VERSION file above.
+  target_include_directories(trekker-ng PRIVATE third_party ${SOUNDTOUCH_INCLUDE_DIR})
+  target_compile_definitions(trekker-ng PRIVATE TREKKER_VERSION="${TREKKER_VERSION}")
 trekker_stage_soundtouch(trekker-ng)
 if(MINGW)
   # -static covers the driver's implicit winpthread/libstdc++ (no extra DLLs);
@@ -128,6 +140,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   set_source_files_properties(
     src/ui/main.cpp
     src/ui/deck_view.cpp
+    src/ui/about.cpp
     PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra"
   )
 endif()

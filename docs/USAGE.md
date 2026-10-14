@@ -62,6 +62,7 @@ device restarts once at that rate.
 | time / bar / pitch | remaining time with a minus sign (`-02:33.75`, total - position) and pitch % next to it, `bar 2.3 | 128.0 BPM` below (bar.beat aligned to the beat grid via `first_beat_offset_ms`, plus the effective BPM; auto-detected tempos (M9) count bars from the file start since the first-beat offset stays 0; a track with no BPM at all shows `bar -.- | -- BPM`, M8 r2) - all render as cyan 7-segment VFD readouts on a dark inset (DSEG7 font); text like `bar`, `BPM` and `+`/`%` keeps the regular UI font. M5e: the time+pitch row sits below Play/CUE at a configurable size (settings, 12-32 px, default 20); the bar row stays at 15 px |
 | `Load...` | opens the native file dialog for this deck (zips and, since M8, audio files) |
 | `[record]` / `REC mm:ss` | (M7) start recording the master bus; while recording the button turns into a red elapsed-time counter - click it again (or press `R`) to stop and save |
+| `[about]` | (M11) open the About box - app version and every bundled library with its version, license and role (see below) |
 
 ### Single and Mix mode
 
@@ -118,11 +119,13 @@ Mix mode shows:
 | `M` | toggle Single / Mix mode (persisted - next boot restores it) |
 | `R` | start / stop recording the master bus into `recordings/` (M7) |
 | `F11` | toggle fullscreen (borderless; persisted - next boot restores it) |
-| `Q` / `Esc` | quit |
+| `Q` / `Esc` | quit (`Esc` closes the About box or the settings modal first while either is open, M11; `Q` always quits) |
 
 ### Settings (`[settings]` next to the mode button)
 
-A small window (M5c) with, top to bottom:
+A centered modal (M5c; restyled M11 to match the About box - closed by the
+title-bar X, `Esc` or the close button, always centered and not
+draggable) with, top to bottom:
 
 | Control | What it does |
 |---|---|
@@ -190,6 +193,27 @@ Listen to a deck in headphones before mixing it in - the classic PFL:
   with a short ring buffer, so a little drift shows as a slowly shifting
   fill level over the hours rather than a glitch. Extreme cases drop a
   whole block or play silence for it (counted, not clicked).
+
+### About box (M11)
+
+`[about]` in the status bar (beside `[settings]` and `[record]`) opens a
+centered modal with:
+
+- **`Trekker-NG <version>`** and the one-line tagline - the version comes
+  from the `VERSION` file baked into the build, so `m11` means the m11
+  release zip;
+- a **table of every bundled library** with its version, role and license -
+  miniaudio (0.11.25, public domain / MIT-0), Dear ImGui (compiled +
+  runtime version), SDL2 (runtime version, zlib), miniz (3.1.2, public
+  domain), nlohmann/json (3.11.3, MIT), SoundTouch (2.4.1, LGPL),
+  libmp3lame (LGPL; version from the runtime DLL is not read), DSEG7
+  Classic (SIL OFL 1.1) and doctest (2.4.12, MIT);
+- the source URL as a clickable link (hover underlines it, click opens
+  the default browser, right-click copies it to the clipboard) and the
+  reminder that the LGPL / OFL license texts ship in `docs/`.
+
+`Esc` closes the box and leaves the app running; a second `Esc` (or `Q`)
+quits. The box is UI-only - it changes no audio state.
 
 ## Console front-end
 

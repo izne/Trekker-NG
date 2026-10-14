@@ -234,7 +234,8 @@ rejects fails with a decode error, not a track-format error.
   the pitch fader no longer nudges. `Load...` opens a native file dialog
   (zip tracks and single audio files, M8; folders still arrive via
   drag & drop or the CLI).
-- **Settings screen** (M5c, `[settings]` next to the mode button): audio
+- **Settings screen** (M5c, `[settings]` next to the mode button; since M11 a
+  centered modal like the About box): audio
   device (miniaudio enumeration, default = system), and since M10 a second
   **cue / headphone device** dropdown (`(none)` default = feature off),
   buffer size, pitch
@@ -272,6 +273,18 @@ rejects fails with a decode error, not a track-format error.
   device is selected in the settings screen; with none selected the UI
   shows the buttons but they change nothing audible (the master path is
   untouched).
+- **About box** (M11): an `[about]` button in the status bar (beside
+  `[settings]` and `[record]`) opens a centered modal with the app name and
+  version (fed from the `VERSION` file at build time) and a table of every
+  third-party library (§3) with its version, role and license - versions
+  come from the headers and the runtime where they exist - plus the source
+  URL as a clickable link (hover underlines, click opens the default
+  browser, right-click copies) and the note that the LGPL/OFL license
+  texts ship in `docs/`. The settings screen (M5c) is restyled into the
+  same centered-modal style; both dialogs are always centered, not
+  draggable, and close via the X, `Esc` or their close button. While a box
+  is open `Esc` closes it instead of quitting (`Q` always quits). The
+  modals are UI-only - no engine code, no new engine test.
 - **Waveform:** overview (summed stems plus per-stem lanes; flat tracks,
   §5: overview plus an empty box in the lanes' place) with a playhead;
   pre-computed min/max peaks on load, click-to-seek. A stretch goal is a
@@ -279,7 +292,8 @@ rejects fails with a decode error, not a track-format error.
 - Keyboard shortcuts for everything (a laptop is the controller for v1):
   `Space` play/pause, `1`-`4`/`7`-`0` stems, pitch keys `=+-_[]` + `0` reset,
   `Shift+1`-`8` hot cues, `I`/`O`/`L`/`Shift+L` loop keys, `Alt+1`-`5` quick
-  loops, `M` mode, `F11` fullscreen (M5f), `R` record (M7), `Q`/`Esc` quit. A configurable
+  loops, `M` mode, `F11` fullscreen (M5f), `R` record (M7), `Q`/`Esc` quit
+  (M11: while the About box is open, `Esc` closes it first). A configurable
   map is nice but not required.
 - Drag and drop a track folder, zip or single audio file (M8) anywhere on
   the window (routes to the
@@ -329,6 +343,7 @@ trekker-ng/
 | **M8** | **Single-file tracks (flat).** Any file miniaudio decodes (WAV/FLAC/MP3/OGG, §5) loads as a flat track: title from the file name, the lane area drawn as an empty box with no stem toggles (§6), hot cues in a `<file>.cues.json` sidecar; the `Load...` dialog, drag & drop and the CLI accept audio files. | You drop a plain MP3 on a deck and play/beatmix it like any track - and a 1-stem stem track still shows the full stem UI. |
 | **M9** | **BPM auto-detection.** A track whose `bpm` is 0 - a flat file, or a zip/folder whose `meta.json` omits it - gets its BPM filled on load by SoundTouch `BPMDetect` (§5), analyzed from the first filled stem; the result is flagged `bpmDetected` (UI status line and console print say "detected"). A `<file>.cues.json` sidecar may carry an explicit `"bpm"` that wins over detection and round-trips through cue edits. Quick loops (1/2/4/8/16) light up as soon as a BPM is known. | You drop a plain MP3 of a 128 BPM track on a deck and the VFD reads ~128, quick loops snap to beats, and the status line says the BPM was auto-detected. |
 | **M10** | **Headphone cue (PFL).** A lit PFL button per deck taps that deck post-EQ/pre-fader into a cue bus (§4.8); a persisted PHONES slider blends cue ↔ master into a **separately selectable headphone device** (settings, `(none)` default = feature off, so the pre-M10 output path stays bit-identical). The two devices are bridged by a preallocated lock-free ring (drop on overrun, silence on underrun, both counted); the cue device starts/stops/restarts with the master. | You set a second output device, hit PFL on the track you are preparing and hear it in the headphones while the other deck plays the room - and with no cue device configured, nothing behaves differently than before. |
+| **M11** | **About box.** The `[about]` status-bar button opens a centered modal listing `Trekker-NG <version>` (the `VERSION` file, fed to the binary at build time) with a one-line tagline and every third-party library (§3) with its version, role and license - versions read from the headers and the runtime where they exist - plus the source URL as a clickable link and the pointer to the license texts shipped in `docs/`. The settings screen (M5c) is restyled into the same centered-modal style. `Esc` closes the open dialog instead of quitting. | You press `[about]` and immediately see which build you run and every library inside it with its license - and the settings screen looks and closes the same way; Esc steps out of either dialog without killing your session, a second Esc quits. |
 
 Work on **one milestone at a time**. Do not start the next one until the current one builds, runs, and is committed. Every milestone ends with a fresh runnable build in `dist/` for the user to test (see §10.2).
 
@@ -349,7 +364,7 @@ Automated (engine, headless, no soundcard needed, render offline to a buffer):
 9. **BPM auto-detection (M9):** `detectBpm` on synthesized kick trains at 80/128/174 BPM returns a tempo within 1 BPM of the source or a small-integer ratio of it (the documented octave/triplet ambiguity of envelope autocorrelation on perfectly periodic material), and the real-music acceptance decodes `examples/magnat.zip` and lands within 1 BPM of the 128 from its own `meta.json` (skipped when examples/ is absent); silence and sub-second audio detect nothing; a flat kick WAV loads with `bpmDetected` set and bpm ≈ 128; a sidecar `"bpm"` wins over detection and survives a cue-edit save round-trip.
 10. **Headphone cue (M10):** the PFL tap is pre-fader - a deck at line gain 0 with the crossfader fully away still reaches the cue bus while the master carries none of it; PFL toggles ramp without clicks (same discontinuity threshold as 3); the PHONES blend at 0 equals the cue bus and at 1 equals the master; the SPSC cue ring round-trips frames and handles over- and underrun; `Settings` round-trips `cue_device`.
 
-Manual: listen test at ±10% on real music (the original exported song). It should sound like pitching a record, with no warble, phasing, or "digital" smear. M7: record a few minutes while mixing - the file plays back with no dropouts, the drop counter stays at zero, and without `libmp3lame-0.dll` beside the exe the same take saves as WAV instead. M8: drop a plain MP3/FLAC on a deck - it plays with the flat layout (empty box in the lane area), and its hot cues survive a reload. M9: drop an MP3 with no `meta.json` and no sidecar `bpm` - the status line shows the detected BPM and the quick-loop buttons become clickable. M10: select a headphone device in settings, hit PFL on deck B - the cans play B while the room keeps hearing A; clearing the dropdown restores the old behavior exactly.
+Manual: listen test at ±10% on real music (the original exported song). It should sound like pitching a record, with no warble, phasing, or "digital" smear. M7: record a few minutes while mixing - the file plays back with no dropouts, the drop counter stays at zero, and without `libmp3lame-0.dll` beside the exe the same take saves as WAV instead. M8: drop a plain MP3/FLAC on a deck - it plays with the flat layout (empty box in the lane area), and its hot cues survive a reload. M9: drop an MP3 with no `meta.json` and no sidecar `bpm` - the status line shows the detected BPM and the quick-loop buttons become clickable. M10: select a headphone device in settings, hit PFL on deck B - the cans play B while the room keeps hearing A; clearing the dropdown restores the old behavior exactly. M11: press `[about]` - the modal shows the `Trekker-NG m11` version line and the full library table (clickable source link); `[settings]` opens as the same kind of centered modal; Esc closes either dialog with the app still running, a second Esc quits.
 
 ## 10. Rules for the agent
 

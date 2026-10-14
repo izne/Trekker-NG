@@ -6,6 +6,7 @@
 // the next block. Dropping a folder, .zip or audio file (M8: single files
 // load as flat tracks) loads the deck under the drop position (SPEC §6.156).
 
+#include "about.h"    // M11: [about] modal with the third-party libraries
 #include "deck_view.h"
 
 #include "audio_device.h"
@@ -151,6 +152,7 @@ int main(int argc, char** argv) {
     ImGui_ImplOpenGL3_Init("#version 130");
 
     bool showSettings = false;
+    bool showAbout = false; // M11: About box (status-bar [about] button)
     std::vector<std::string> deviceNames; // filled lazily by the settings window
     bool deviceNamesLoaded = false;
     uint32_t periodFrames = static_cast<uint32_t>(settings.bufferFrames); // audio callback size
@@ -560,8 +562,21 @@ int main(int argc, char** argv) {
                             toggleRecord();
                         }
                         break;
-                    case SDLK_q: case SDLK_ESCAPE:
+                    case SDLK_q:
                         running = false;
+                        break;
+                    case SDLK_ESCAPE:
+                        // M11: Esc closes the About box or the settings
+                        // modal first (ImGui keyboard nav is off, so the
+                        // event loop owns the key); with both closed it
+                        // quits as before.
+                        if (showAbout) {
+                            showAbout = false;
+                        } else if (showSettings) {
+                            showSettings = false;
+                        } else {
+                            running = false;
+                        }
                         break;
                     case SDLK_F11: {
                         // M5f: borderless fullscreen toggle, persisted so
@@ -991,6 +1006,11 @@ int main(int argc, char** argv) {
             toggleRecord();
         }
         ImGui::SameLine();
+        // M11: About box - centered modal with the version and the
+        // third-party libraries (SPEC §6).
+        if (ImGui::Button("[about]")) showAbout = true;
+        tui::drawAbout(&showAbout);
+        ImGui::SameLine();
         ImGui::TextDisabled(
             "keys: Space play/pause (active deck) | 1-4 stems A, 7-0 stems B | "
             "+/- pitch (0 = reset) | M single/mix | R record | Q / Esc quit | "
@@ -1000,145 +1020,161 @@ int main(int argc, char** argv) {
             "Alt+1-5 quick loop | nudge slider = hold for pitch bend (release snaps back)");
         ImGui::End();
 
-        // --- M5c settings window (SPEC §4.3/§6): --------------------------
-        // Immediate-apply + write-through save: every change hits the engine
-        // or the views right away and lands in trekker-ng.json. Device and
-        // buffer changes restart the audio device (brief dropout).
-        if (showSettings) {
-            ImGui::SetNextWindowSize(ImVec2(0.0f, 0.0f), ImGuiCond_Appearing);
-            if (ImGui::Begin("settings", &showSettings)) {
-                if (!deviceNamesLoaded) {
-                    tng::AudioDevice::listPlaybackDevices(&deviceNames);
-                    deviceNamesLoaded = true;
-                }
-                ImGui::TextDisabled("audio device");
-                if (ImGui::BeginCombo(
-                        "##dev", settings.deviceName.empty() ? "(default)"
-                                                             : settings.deviceName.c_str())) {
-                    for (const std::string& name : deviceNames) {
-                        const bool sel = settings.deviceName == name;
-                        if (ImGui::Selectable(name.empty() ? "(default)" : name.c_str(),
-                                              sel)) {
-                            if (!sel) {
-                                settings.deviceName = name;
-                                saveSettings();
-                                applyDevice();
-                            }
-                        }
-                    }
-                    ImGui::EndCombo();
-                }
-                // M10 (SPEC §4.8/§6): headphone/cue output. (none) = the
-                // feature off = the pre-M10 output path exactly; selecting
-                // anything re-inits the device with the second stream.
-                ImGui::TextDisabled("cue / headphones");
-                const char* cuePreview =
-                    !settings.cueDeviceOn
-                        ? "(none)"
-                        : (settings.cueDeviceName.empty() ? "(default)"
-                                                          : settings.cueDeviceName.c_str());
-                if (ImGui::BeginCombo("##cuedev", cuePreview)) {
-                    const bool offSel = !settings.cueDeviceOn;
-                    if (ImGui::Selectable("(none)", offSel) && !offSel) {
-                        settings.cueDeviceOn = false;
-                        saveSettings();
-                        applyDevice();
-                    }
-                    const bool defSel =
-                        settings.cueDeviceOn && settings.cueDeviceName.empty();
-                    if (ImGui::Selectable("(default)", defSel) && !defSel) {
-                        settings.cueDeviceOn = true;
-                        settings.cueDeviceName.clear();
-                        saveSettings();
-                        applyDevice();
-                    }
-                    for (size_t i = 1; i < deviceNames.size(); ++i) {
-                        const bool sel =
-                            settings.cueDeviceOn && settings.cueDeviceName == deviceNames[i];
-                        if (ImGui::Selectable(deviceNames[i].c_str(), sel) && !sel) {
-                            settings.cueDeviceOn = true;
-                            settings.cueDeviceName = deviceNames[i];
+        // --- M5c settings (SPEC §4.3/§6), M11 restyled as a centered -----
+        // modal like the About box: Immediate-apply + write-through save:
+        // every change hits the engine or the views right away and lands in
+        // trekker-ng.json. Device and buffer changes restart the audio
+        // device (brief dropout).
+        if (showSettings && !ImGui::IsPopupOpen("settings")) {
+            ImGui::OpenPopup("settings");
+        }
+        // M11: always centered like the About box (ImGui's default is
+        // FirstUseEver, which would let the old floating window's saved
+        // position in imgui.ini drag the modal off-center), not draggable.
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(),
+                                ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        if (ImGui::BeginPopupModal("settings", &showSettings,
+                                   ImGuiWindowFlags_AlwaysAutoResize |
+                                       ImGuiWindowFlags_NoMove)) {
+            if (!deviceNamesLoaded) {
+                tng::AudioDevice::listPlaybackDevices(&deviceNames);
+                deviceNamesLoaded = true;
+            }
+            ImGui::TextDisabled("audio device");
+            if (ImGui::BeginCombo(
+                    "##dev", settings.deviceName.empty() ? "(default)"
+                                                         : settings.deviceName.c_str())) {
+                for (const std::string& name : deviceNames) {
+                    const bool sel = settings.deviceName == name;
+                    if (ImGui::Selectable(name.empty() ? "(default)" : name.c_str(),
+                                          sel)) {
+                        if (!sel) {
+                            settings.deviceName = name;
                             saveSettings();
                             applyDevice();
                         }
                     }
-                    ImGui::EndCombo();
                 }
-                ImGui::TextDisabled("buffer size");
-                static const char* kBufNames[] = {"64", "128", "256", "512", "1024"};
-                static const int kBufFrames[] = {64, 128, 256, 512, 1024};
-                int bufIdx = 2;
-                for (int i = 0; i < 5; ++i) {
-                    if (kBufFrames[i] == settings.bufferFrames) bufIdx = i;
-                }
-                if (ImGui::BeginCombo("##buf", kBufNames[bufIdx])) {
-                    for (int i = 0; i < 5; ++i) {
-                        const bool sel = i == bufIdx;
-                        if (ImGui::Selectable(kBufNames[i], sel)) {
-                            if (!sel) {
-                                settings.bufferFrames = kBufFrames[i];
-                                periodFrames = static_cast<uint32_t>(kBufFrames[i]);
-                                saveSettings();
-                                applyDevice();
-                            }
-                        }
-                    }
-                    ImGui::EndCombo();
-                }
-                ImGui::TextDisabled("pitch range");
-                if (ImGui::BeginCombo("##pr",
-                                      settings.pitchRangePct == 16.0f ? "16%" : "10%")) {
-                    if (ImGui::Selectable("10%", settings.pitchRangePct == 10.0f)) {
-                        settings.pitchRangePct = 10.0f;
-                        for (int i = 0; i < kDeckCount; ++i) {
-                            views[i].setPitchRange(decks[i], settings.pitchRangePct);
-                        }
-                        saveSettings();
-                    }
-                    if (ImGui::Selectable("16%", settings.pitchRangePct == 16.0f)) {
-                        settings.pitchRangePct = 16.0f;
-                        for (int i = 0; i < kDeckCount; ++i) {
-                            views[i].setPitchRange(decks[i], settings.pitchRangePct);
-                        }
-                        saveSettings();
-                    }
-                    ImGui::EndCombo();
-                }
-                if (ImGui::Checkbox("reversed pitch fader (up = slower)",
-                                    &settings.pitchReversed)) {
-                    for (int i = 0; i < kDeckCount; ++i) {
-                        views[i].setPitchReversed(settings.pitchReversed);
-                    }
-                    saveSettings();
-                }
-                if (ImGui::Checkbox("start in Mix mode", &settings.bootMixMode)) {
-                    saveSettings();
-                }
-                // M5e: size of the big VFD row (remaining time + pitch %);
-                // applies live to both decks, saved on release.
-                ImGui::TextDisabled("time + pitch readout size");
-                float rs = settings.vfdTimePitchSize;
-                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                if (ImGui::SliderFloat("##rs", &rs, 12.0f, 32.0f, "%.0f px",
-                                       ImGuiSliderFlags_AlwaysClamp)) {
-                    settings.vfdTimePitchSize = rs;
-                    for (int i = 0; i < kDeckCount; ++i) views[i].setReadoutSize(rs);
-                }
-                if (ImGui::IsItemDeactivatedAfterEdit()) saveSettings();
-                ImGui::TextDisabled("crossfader curve");
-                for (int c = 0; c < 3; ++c) {
-                    if (c > 0) ImGui::SameLine(0.0f, 4.0f);
-                    ImGui::PushID(100 + c);
-                    if (ImGui::Selectable(kXfNames[c], mixer.xfCurve() == c, 0,
-                                          ImVec2(38.0f, 0.0f))) {
-                        mixer.setXfCurve(c);
-                        settings.xfCurve = c;
-                        saveSettings();
-                    }
-                    ImGui::PopID();
-                }
+                ImGui::EndCombo();
             }
-            ImGui::End();
+            // M10 (SPEC §4.8/§6): headphone/cue output. (none) = the
+            // feature off = the pre-M10 output path exactly; selecting
+            // anything re-inits the device with the second stream.
+            ImGui::TextDisabled("cue / headphones");
+            const char* cuePreview =
+                !settings.cueDeviceOn
+                    ? "(none)"
+                    : (settings.cueDeviceName.empty() ? "(default)"
+                                                      : settings.cueDeviceName.c_str());
+            if (ImGui::BeginCombo("##cuedev", cuePreview)) {
+                const bool offSel = !settings.cueDeviceOn;
+                if (ImGui::Selectable("(none)", offSel) && !offSel) {
+                    settings.cueDeviceOn = false;
+                    saveSettings();
+                    applyDevice();
+                }
+                const bool defSel =
+                    settings.cueDeviceOn && settings.cueDeviceName.empty();
+                if (ImGui::Selectable("(default)", defSel) && !defSel) {
+                    settings.cueDeviceOn = true;
+                    settings.cueDeviceName.clear();
+                    saveSettings();
+                    applyDevice();
+                }
+                for (size_t i = 1; i < deviceNames.size(); ++i) {
+                    const bool sel =
+                        settings.cueDeviceOn && settings.cueDeviceName == deviceNames[i];
+                    if (ImGui::Selectable(deviceNames[i].c_str(), sel) && !sel) {
+                        settings.cueDeviceOn = true;
+                        settings.cueDeviceName = deviceNames[i];
+                        saveSettings();
+                        applyDevice();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::TextDisabled("buffer size");
+            static const char* kBufNames[] = {"64", "128", "256", "512", "1024"};
+            static const int kBufFrames[] = {64, 128, 256, 512, 1024};
+            int bufIdx = 2;
+            for (int i = 0; i < 5; ++i) {
+                if (kBufFrames[i] == settings.bufferFrames) bufIdx = i;
+            }
+            if (ImGui::BeginCombo("##buf", kBufNames[bufIdx])) {
+                for (int i = 0; i < 5; ++i) {
+                    const bool sel = i == bufIdx;
+                    if (ImGui::Selectable(kBufNames[i], sel)) {
+                        if (!sel) {
+                            settings.bufferFrames = kBufFrames[i];
+                            periodFrames = static_cast<uint32_t>(kBufFrames[i]);
+                            saveSettings();
+                            applyDevice();
+                        }
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::TextDisabled("pitch range");
+            if (ImGui::BeginCombo("##pr",
+                                  settings.pitchRangePct == 16.0f ? "16%" : "10%")) {
+                if (ImGui::Selectable("10%", settings.pitchRangePct == 10.0f)) {
+                    settings.pitchRangePct = 10.0f;
+                    for (int i = 0; i < kDeckCount; ++i) {
+                        views[i].setPitchRange(decks[i], settings.pitchRangePct);
+                    }
+                    saveSettings();
+                }
+                if (ImGui::Selectable("16%", settings.pitchRangePct == 16.0f)) {
+                    settings.pitchRangePct = 16.0f;
+                    for (int i = 0; i < kDeckCount; ++i) {
+                        views[i].setPitchRange(decks[i], settings.pitchRangePct);
+                    }
+                    saveSettings();
+                }
+                ImGui::EndCombo();
+            }
+            if (ImGui::Checkbox("reversed pitch fader (up = slower)",
+                                &settings.pitchReversed)) {
+                for (int i = 0; i < kDeckCount; ++i) {
+                    views[i].setPitchReversed(settings.pitchReversed);
+                }
+                saveSettings();
+            }
+            if (ImGui::Checkbox("start in Mix mode", &settings.bootMixMode)) {
+                saveSettings();
+            }
+            // M5e: size of the big VFD row (remaining time + pitch %);
+            // applies live to both decks, saved on release.
+            ImGui::TextDisabled("time + pitch readout size");
+            float rs = settings.vfdTimePitchSize;
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+            if (ImGui::SliderFloat("##rs", &rs, 12.0f, 32.0f, "%.0f px",
+                                   ImGuiSliderFlags_AlwaysClamp)) {
+                settings.vfdTimePitchSize = rs;
+                for (int i = 0; i < kDeckCount; ++i) views[i].setReadoutSize(rs);
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit()) saveSettings();
+            ImGui::TextDisabled("crossfader curve");
+            for (int c = 0; c < 3; ++c) {
+                if (c > 0) ImGui::SameLine(0.0f, 4.0f);
+                ImGui::PushID(100 + c);
+                if (ImGui::Selectable(kXfNames[c], mixer.xfCurve() == c, 0,
+                                      ImVec2(38.0f, 0.0f))) {
+                    mixer.setXfCurve(c);
+                    settings.xfCurve = c;
+                    saveSettings();
+                }
+                ImGui::PopID();
+            }
+
+            // Same close affordance as the About box (the title-bar X
+            // works too - p_open).
+            ImGui::Spacing();
+            if (ImGui::Button("close")) {
+                showSettings = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
         }
 
         ImGui::Render();

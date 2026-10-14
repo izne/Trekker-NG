@@ -8,7 +8,7 @@ stem features of Traktor / djay, but for your own exported stems.
 Written in C++17. Windows first (MSYS2/MinGW64); the engine is kept portable
 so Linux/macOS can follow.
 
-**Current status: 9 of 10 complete** (M1-M5, M7, M8, M9 and M10; M6 packaging remains) -
+**Current status: 10 of 11 complete** (M1-M5, M7-M11; M6 packaging remains) -
 M4a/M4b are in: the equal-power
 crossfader with line/master gains and a two-deck audio path in the engine,
 plus frame-accurate loops and cue points (parse + persistence). M4c adds the
@@ -53,7 +53,11 @@ status line and the console - so the bar counter and quick loops light up
 on plain MP3s too. M10 adds **headphone cue (PFL)**: a second, selectable
 output device carries a cue bus - per-deck `PFL` buttons tap the deck
 post-EQ and pre-fader, a `PHONES` knob blends cue against master - and with
-no cue device configured the output is exactly the pre-M10 one. The project
+no cue device configured the output is exactly the pre-M10 one. M11 adds an
+**About box**: the `[about]` status-bar button opens a centered modal with
+the app version and every bundled library with its version, role and
+license (source URL as a clickable link) - and the settings screen is
+restyled into the same centered-modal style. The project
 is governed by [`SPEC.md`](SPEC.md).
 
 ![Trekker-NG mix mode with the settings window open: the cue / headphones device dropdown under the audio device, two decks with waveform lanes, VFD time/BPM readouts, hot cues and loops, and the mixer column (PFL buttons above the A/B line faders with their VU meters, 3-band EQ, phones blend, crossfader curve, master)](docs/ui-m10.png)
@@ -70,6 +74,7 @@ is governed by [`SPEC.md`](SPEC.md).
 | **M8** | Single-file tracks: any audio file as a flat one-stem track (lane area drawn as an empty box) | done |
 | **M9** | BPM auto-detection: SoundTouch `BPMDetect` fills an unknown BPM (flat files, `meta.json` without `bpm`), so quick loops work on plain audio | done |
 | **M10** | Headphone cue: a second output device for PFL per deck (post-EQ, pre-fader) with a cue/master PHONES blend | done |
+| **M11** | About box: `[about]` in the status bar opens a centered modal with the app version and a library/role/license table (clickable source link); the settings screen is restyled into the same centered-modal style; Esc closes either dialog first | done |
 
 ## Features
 
@@ -129,7 +134,9 @@ is governed by [`SPEC.md`](SPEC.md).
   nudge). M5g: the bend is an offset added to the pitch playing at the
   press, so the handle shows that offset (center = the current pitch).
 - **Settings screen (M5c/M5e/M10)** - `[settings]` next to the mode button opens a
-  window with the audio device (miniaudio enumeration, default = system),
+  centered modal (M11: same style as the About box - always centered,
+  closed by the X, Esc or the close button) with the audio device
+  (miniaudio enumeration, default = system),
   the cue/headphone device (M10, `(none)` = off),
   buffer size (64..1024, default 256), pitch range, a reversed-pitch-fader
   checkbox (default on, DJ-style up = slower), boot mode, crossfader curve,
@@ -175,6 +182,16 @@ is governed by [`SPEC.md`](SPEC.md).
   the pre-M10 path. The two devices run independently (a lock-free ring
   bridges them; small clock drift shows as a slowly shifting fill level,
   with overrun/underrun counted rather than glitching).
+- **About box (M11)** - `[about]` in the status bar (beside `[settings]`
+  and `[record]`) opens a centered modal with `Trekker-NG <version>` (from
+  the `VERSION` file), a one-line tagline and a table of every bundled
+  library with its version, role and license - miniaudio, Dear ImGui, SDL2
+  (runtime), miniz, nlohmann/json, SoundTouch, libmp3lame, DSEG7 Classic
+  and doctest - plus the source URL as a clickable link (hover underlines
+  it, click opens the default browser, right-click copies it) and the
+  pointer to the license texts in `docs/`. The settings screen is the
+  same kind of centered modal. While a box is open `Esc` closes it
+  instead of quitting (`Q` always quits).
 - **Offline render mode** - render to WAV without a soundcard (`--render`),
   used for tests and automation.
 - **ImGui UI with drag & drop** - drop a track folder, `.zip` or audio file
@@ -417,7 +434,8 @@ src/
     audio_device.{h,cpp}     miniaudio device + playback-device enumeration
     recorder.{h,cpp}         M7 master-bus capture: SPSC ring + writer thread,
                              MP3 (runtime libmp3lame) with WAV fallback
-  ui/                M3 ImGui + SDL2 front-end (main loop, deck view)
+  ui/                M3 ImGui + SDL2 front-end (main loop, deck view);
+                     M11 about.{h,cpp} - the About-box modal
   console/           M1/M2 console front-end (kept as trekker-console)
 tests/               doctest suite (SPEC §9), run automatically by build.sh
 tools/               manual acceptance helpers (test-track generator)
